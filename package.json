@@ -1,0 +1,40 @@
+{
+  "name": "seoul-auction-analyzer",
+  "version": "1.0.0",
+  "description": "서울경매 물건 분석 및 공유 서비스",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js start",
+    "scrape": "node app.js scrape", 
+    "analyze": "node app.js analyze",
+    "full": "node app.js full",
+    "dev": "node app.js start",
+    "test": "echo \"테스트 준비 중\" && exit 0"
+  },
+  "keywords": [
+    "auction",
+    "seoul",
+    "real-estate",
+    "analysis",
+    "scraping"
+  ],
+  "author": "Unble",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "pg": "^8.13.1",
+    "puppeteer": "^23.10.4"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=7.0.0"
+  }
+}
