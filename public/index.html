@@ -3,29 +3,158 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>서울경매 물건 분석 서비스</title>
+    <title>부산경매 AI 분석 시스템 | 스마트 투자 플랫폼</title>
+    <meta name="description" content="AI 기반 부산 부동산 경매 분석 시스템. 실시간 투자 점수, 수익률 예측, 위험도 분석을 제공합니다.">
+    <meta name="keywords" content="부산경매, 경매분석, 투자분석, AI분석, 부동산투자, 경매물건">
+    
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
+    
+    <!-- Tailwind CSS & Chart.js -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <!-- 네이버맵 API - 데모용 (실제 운영 시 유효한 API 키 필요) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    
+    <!-- 커스텀 CSS -->
+    <style>
+        /* 커스텀 애니메이션 */
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .animate-pulse-slow {
+            animation: pulse-slow 2s infinite;
+        }
+        
+        /* 그라데이션 배경 */
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        /* 투자 등급별 색상 */
+        .grade-s { color: #10b981; font-weight: bold; }
+        .grade-a { color: #3b82f6; font-weight: bold; }
+        .grade-b { color: #f59e0b; font-weight: bold; }
+        .grade-c { color: #ef4444; font-weight: bold; }
+        .grade-d { color: #6b7280; font-weight: bold; }
+        
+        /* 스크롤바 스타일링 */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 10px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        /* 카드 호버 효과 */
+        .property-card {
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+        
+        .property-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            border-color: #3b82f6;
+        }
+        
+        /* 로딩 스피너 */
+        .loading-spinner {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* 투자점수 바 */
+        .score-bar {
+            position: relative;
+            height: 20px;
+            background: #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .score-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.8s ease-in-out;
+        }
+        
+        .score-excellent { background: linear-gradient(90deg, #10b981, #059669); }
+        .score-good { background: linear-gradient(90deg, #3b82f6, #2563eb); }
+        .score-fair { background: linear-gradient(90deg, #f59e0b, #d97706); }
+        .score-poor { background: linear-gradient(90deg, #ef4444, #dc2626); }
+    </style>
+    
+    <!-- 네이버맵 API -->
     <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=YOUR_CLIENT_ID"></script>
-    <!-- 카카오맵 API - 데모용 (실제 운영 시 유효한 API 키 필요) -->
-    <!-- <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=YOUR_API_KEY&libraries=services"></script> -->
+    
+    <!-- 카카오맵 API -->
+    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=YOUR_API_KEY&libraries=services"></script>
+    
+    <!-- Socket.IO for Real-time updates -->
+    <script src="/socket.io/socket.io.js"></script>
 </head>
 <body class="bg-gray-50">
     <!-- 헤더 -->
-    <header class="bg-blue-600 text-white shadow-lg">
-        <div class="container mx-auto px-4 py-4">
+    <header class="gradient-bg text-white shadow-lg relative overflow-hidden">
+        <div class="absolute inset-0 bg-black opacity-20"></div>
+        <div class="container mx-auto px-4 py-6 relative z-10">
             <div class="flex items-center justify-between">
-                <h1 class="text-2xl font-bold">
-                    <i class="fas fa-gavel mr-2"></i>
-                    서울경매 분석
-                </h1>
                 <div class="flex items-center space-x-4">
-                    <span class="text-sm" id="lastUpdate">마지막 업데이트: --</span>
-                    <button onclick="refreshData()" class="bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded-lg text-sm">
+                    <div class="bg-white bg-opacity-20 p-3 rounded-full">
+                        <i class="fas fa-brain text-2xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-3xl font-bold">
+                            부산경매 AI 분석
+                        </h1>
+                        <p class="text-sm opacity-90">Smart Investment Platform</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <!-- 실시간 상태 -->
+                    <div class="flex items-center space-x-2">
+                        <div class="w-2 h-2 bg-green-400 rounded-full animate-pulse-slow"></div>
+                        <span class="text-sm">실시간 연결</span>
+                    </div>
+                    
+                    <!-- 마지막 업데이트 -->
+                    <div class="text-sm opacity-90">
+                        <i class="fas fa-clock mr-1"></i>
+                        <span id="lastUpdate">업데이트: --</span>
+                    </div>
+                    
+                    <!-- 새로고침 버튼 -->
+                    <button onclick="refreshData()" class="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm transition-all duration-200">
                         <i class="fas fa-sync mr-1"></i> 새로고침
+                    </button>
+                    
+                    <!-- 설정 버튼 -->
+                    <button onclick="toggleSettings()" class="bg-white bg-opacity-20 hover:bg-opacity-30 p-2 rounded-lg transition-all duration-200">
+                        <i class="fas fa-cog"></i>
                     </button>
                 </div>
             </div>
@@ -34,128 +163,296 @@
 
     <div class="container mx-auto px-4 py-8">
         <!-- 대시보드 통계 -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex items-center">
-                    <div class="bg-blue-100 p-3 rounded-full">
-                        <i class="fas fa-home text-blue-600"></i>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- 전체 물건 수 -->
+            <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-all duration-300">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="bg-gradient-to-r from-blue-500 to-blue-600 p-3 rounded-full shadow-lg">
+                            <i class="fas fa-building text-white text-lg"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h3 class="text-sm font-medium text-gray-600">활성 물건</h3>
+                            <p class="text-2xl font-bold text-gray-900" id="totalProperties">
+                                <span class="loading-spinner inline-block"></span>
+                            </p>
+                        </div>
                     </div>
-                    <div class="ml-4">
-                        <h3 class="text-sm font-medium text-gray-500">전체 물건</h3>
-                        <p class="text-2xl font-bold text-gray-900" id="totalProperties">-</p>
+                    <div class="text-xs text-gray-500" id="totalPropertiesChange">--</div>
+                </div>
+            </div>
+
+            <!-- 오늘 신규 -->
+            <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-all duration-300">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="bg-gradient-to-r from-green-500 to-green-600 p-3 rounded-full shadow-lg">
+                            <i class="fas fa-plus text-white text-lg"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h3 class="text-sm font-medium text-gray-600">오늘 신규</h3>
+                            <p class="text-2xl font-bold text-gray-900" id="newToday">
+                                <span class="loading-spinner inline-block"></span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="text-xs text-green-600 font-medium" id="newTodayBadge">NEW</div>
+                </div>
+            </div>
+
+            <!-- 평균 AI 점수 -->
+            <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-all duration-300">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="bg-gradient-to-r from-purple-500 to-purple-600 p-3 rounded-full shadow-lg">
+                            <i class="fas fa-brain text-white text-lg"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h3 class="text-sm font-medium text-gray-600">평균 AI 점수</h3>
+                            <p class="text-2xl font-bold text-gray-900" id="avgScore">
+                                <span class="loading-spinner inline-block"></span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="text-xs" id="avgScoreGrade">--</div>
+                </div>
+                <div class="mt-3">
+                    <div class="score-bar">
+                        <div class="score-fill w-0" id="avgScoreBar"></div>
                     </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex items-center">
-                    <div class="bg-green-100 p-3 rounded-full">
-                        <i class="fas fa-plus text-green-600"></i>
+            <!-- S급 물건 -->
+            <div class="bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-all duration-300">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <div class="bg-gradient-to-r from-yellow-500 to-yellow-600 p-3 rounded-full shadow-lg">
+                            <i class="fas fa-crown text-white text-lg"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h3 class="text-sm font-medium text-gray-600">S급 물건</h3>
+                            <p class="text-2xl font-bold text-gray-900" id="sGradeProperties">
+                                <span class="loading-spinner inline-block"></span>
+                            </p>
+                        </div>
                     </div>
-                    <div class="ml-4">
-                        <h3 class="text-sm font-medium text-gray-500">오늘 신규</h3>
-                        <p class="text-2xl font-bold text-gray-900" id="newToday">-</p>
-                    </div>
+                    <div class="text-xs grade-s" id="sGradeBadge">PREMIUM</div>
                 </div>
             </div>
+        </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex items-center">
-                    <div class="bg-yellow-100 p-3 rounded-full">
-                        <i class="fas fa-star text-yellow-600"></i>
-                    </div>
-                    <div class="ml-4">
-                        <h3 class="text-sm font-medium text-gray-500">평균 점수</h3>
-                        <p class="text-2xl font-bold text-gray-900" id="avgScore">-</p>
+        <!-- AI 인사이트 대시보드 -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+            <h2 class="text-xl font-bold mb-4 flex items-center">
+                <i class="fas fa-chart-line mr-3 text-blue-600"></i>
+                실시간 AI 인사이트
+            </h2>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- 투자 등급 분포 차트 -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h3 class="text-sm font-medium text-gray-700 mb-3">투자 등급 분포</h3>
+                    <div class="relative" style="height: 200px;">
+                        <canvas id="gradeDistributionChart"></canvas>
                     </div>
                 </div>
-            </div>
-
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex items-center">
-                    <div class="bg-red-100 p-3 rounded-full">
-                        <i class="fas fa-trophy text-red-600"></i>
-                    </div>
-                    <div class="ml-4">
-                        <h3 class="text-sm font-medium text-gray-500">고점수 물건</h3>
-                        <p class="text-2xl font-bold text-gray-900" id="highScore">-</p>
+                
+                <!-- 지역별 평균 점수 -->
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h3 class="text-sm font-medium text-gray-700 mb-3">지역별 평균 점수</h3>
+                    <div class="relative" style="height: 200px;">
+                        <canvas id="regionScoreChart"></canvas>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- 필터 및 검색 -->
-        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
-            <h2 class="text-lg font-semibold mb-4">
-                <i class="fas fa-filter mr-2"></i>
-                검색 및 필터
-            </h2>
+        <!-- 스마트 필터 및 검색 -->
+        <div class="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold flex items-center">
+                    <i class="fas fa-search mr-3 text-blue-600"></i>
+                    스마트 검색 & 필터
+                </h2>
+                <div class="flex space-x-2">
+                    <button onclick="resetFilters()" class="text-gray-500 hover:text-gray-700 text-sm">
+                        <i class="fas fa-undo mr-1"></i>초기화
+                    </button>
+                    <button onclick="saveFilter()" class="text-blue-600 hover:text-blue-700 text-sm">
+                        <i class="fas fa-bookmark mr-1"></i>저장
+                    </button>
+                </div>
+            </div>
             
-            <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <!-- 빠른 필터 (투자 등급) -->
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-3">빠른 필터</label>
+                <div class="flex flex-wrap gap-2">
+                    <button onclick="setQuickFilter('grade', 'S')" class="px-4 py-2 bg-gray-100 hover:bg-green-100 hover:text-green-700 rounded-full text-sm transition-colors" id="quickFilterS">
+                        <i class="fas fa-crown mr-1"></i>S급만 보기
+                    </button>
+                    <button onclick="setQuickFilter('grade', 'A')" class="px-4 py-2 bg-gray-100 hover:bg-blue-100 hover:text-blue-700 rounded-full text-sm transition-colors" id="quickFilterA">
+                        <i class="fas fa-star mr-1"></i>A급 이상
+                    </button>
+                    <button onclick="setQuickFilter('discount', 30)" class="px-4 py-2 bg-gray-100 hover:bg-yellow-100 hover:text-yellow-700 rounded-full text-sm transition-colors" id="quickFilterDiscount">
+                        <i class="fas fa-percent mr-1"></i>할인율 30% 이상
+                    </button>
+                    <button onclick="setQuickFilter('new', true)" class="px-4 py-2 bg-gray-100 hover:bg-purple-100 hover:text-purple-700 rounded-full text-sm transition-colors" id="quickFilterNew">
+                        <i class="fas fa-sparkles mr-1"></i>신규물건
+                    </button>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+                <!-- 물건 유형 -->
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">물건 유형</label>
-                    <select id="filterType" class="w-full border rounded-lg px-3 py-2">
+                    <select id="filterType" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                         <option value="">전체</option>
                         <option value="아파트">아파트</option>
                         <option value="오피스텔">오피스텔</option>
+                        <option value="빌라">빌라/연립</option>
                         <option value="단독주택">단독주택</option>
-                        <option value="상가">상가</option>
+                        <option value="상가">상가점포</option>
                         <option value="토지">토지</option>
+                        <option value="공장">공장/창고</option>
                     </select>
                 </div>
 
+                <!-- 부산 지역 -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">지역</label>
-                    <select id="filterRegion" class="w-full border rounded-lg px-3 py-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">지역(구/군)</label>
+                    <select id="filterRegion" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                         <option value="">전체</option>
-                        <option value="강남구">강남구</option>
-                        <option value="강동구">강동구</option>
-                        <option value="강북구">강북구</option>
+                        <option value="해운대구">해운대구 ⭐</option>
+                        <option value="센텀시티">센텀시티 ⭐</option>
+                        <option value="부산진구">부산진구</option>
+                        <option value="동래구">동래구</option>
+                        <option value="연제구">연제구</option>
+                        <option value="수영구">수영구</option>
+                        <option value="남구">남구</option>
+                        <option value="사하구">사하구</option>
+                        <option value="북구">북구</option>
                         <option value="강서구">강서구</option>
-                        <option value="관악구">관악구</option>
-                        <option value="구로구">구로구</option>
-                        <option value="금천구">금천구</option>
-                        <option value="노원구">노원구</option>
-                        <option value="도봉구">도봉구</option>
-                        <option value="동대문구">동대문구</option>
-                        <option value="동작구">동작구</option>
-                        <option value="마포구">마포구</option>
-                        <option value="서대문구">서대문구</option>
-                        <option value="서초구">서초구</option>
-                        <option value="성동구">성동구</option>
-                        <option value="성북구">성북구</option>
-                        <option value="송파구">송파구</option>
-                        <option value="양천구">양천구</option>
-                        <option value="영등포구">영등포구</option>
-                        <option value="용산구">용산구</option>
-                        <option value="은평구">은평구</option>
-                        <option value="종로구">종로구</option>
+                        <option value="사상구">사상구</option>
+                        <option value="금정구">금정구</option>
+                        <option value="동구">동구</option>
+                        <option value="서구">서구</option>
                         <option value="중구">중구</option>
-                        <option value="중랑구">중랑구</option>
-                        <option value="진구">진구</option>
+                        <option value="영도구">영도구</option>
+                        <option value="기장군">기장군</option>
                     </select>
                 </div>
 
+                <!-- 가격 범위 -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">최소 가격 (억원)</label>
-                    <input type="number" id="filterMinPrice" placeholder="1" class="w-full border rounded-lg px-3 py-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">최소가격(억)</label>
+                    <input type="number" id="filterMinPrice" placeholder="0.5" min="0" step="0.1" 
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">최대 가격 (억원)</label>
-                    <input type="number" id="filterMaxPrice" placeholder="10" class="w-full border rounded-lg px-3 py-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">최대가격(억)</label>
+                    <input type="number" id="filterMaxPrice" placeholder="50" min="0" step="0.1"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 </div>
 
+                <!-- 투자점수 -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">최소 투자점수</label>
-                    <input type="number" id="filterMinScore" placeholder="60" class="w-full border rounded-lg px-3 py-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">최소 AI점수</label>
+                    <div class="relative">
+                        <input type="range" id="filterScoreRange" min="0" max="100" value="50" 
+                               class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        <div class="text-xs text-center mt-1">
+                            <span id="filterScoreValue">50</span>점 이상
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 투자등급 -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">투자등급</label>
+                    <select id="filterGrade" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <option value="">전체</option>
+                        <option value="S" class="grade-s">S급 (85점이상)</option>
+                        <option value="A" class="grade-a">A급 (70-84점)</option>
+                        <option value="B" class="grade-b">B급 (55-69점)</option>
+                        <option value="C" class="grade-c">C급 (40-54점)</option>
+                        <option value="D" class="grade-d">D급 (40점미만)</option>
+                    </select>
                 </div>
             </div>
 
-            <div class="mt-4 flex justify-end">
-                <button onclick="applyFilters()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
-                    <i class="fas fa-search mr-2"></i>검색
+            <!-- 고급 필터 -->
+            <div class="mt-6">
+                <button onclick="toggleAdvancedFilter()" class="text-sm text-blue-600 hover:text-blue-700 mb-4 flex items-center">
+                    <i class="fas fa-chevron-down mr-1" id="advancedFilterIcon"></i>
+                    고급 필터 옵션
                 </button>
+                
+                <div id="advancedFilters" class="hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-gray-200">
+                        <!-- 유찰횟수 -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">최대 유찰횟수</label>
+                            <select id="filterFailureCount" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">제한없음</option>
+                                <option value="0">신건만</option>
+                                <option value="1">1회 이하</option>
+                                <option value="2">2회 이하</option>
+                                <option value="3">3회 이하</option>
+                            </select>
+                        </div>
+
+                        <!-- 입찰일 -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">입찰일</label>
+                            <select id="filterAuctionDate" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">전체</option>
+                                <option value="7">7일 이내</option>
+                                <option value="30">30일 이내</option>
+                                <option value="90">90일 이내</option>
+                            </select>
+                        </div>
+
+                        <!-- ROI -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">예상 ROI</label>
+                            <select id="filterROI" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">제한없음</option>
+                                <option value="10">10% 이상</option>
+                                <option value="20">20% 이상</option>
+                                <option value="30">30% 이상</option>
+                            </select>
+                        </div>
+
+                        <!-- 임차인 유무 -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">임차인 현황</label>
+                            <select id="filterTenant" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                                <option value="">전체</option>
+                                <option value="없음">임차인 없음</option>
+                                <option value="있음">임차인 있음</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 검색 버튼 -->
+            <div class="mt-6 flex justify-between items-center">
+                <div class="text-sm text-gray-600">
+                    필터 적용 결과: <span id="filterResultCount" class="font-semibold">--</span>개
+                </div>
+                <div class="flex space-x-3">
+                    <button onclick="exportResults()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors">
+                        <i class="fas fa-download mr-2"></i>엑셀 다운로드
+                    </button>
+                    <button onclick="applyFilters()" class="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-6 py-2 rounded-lg transition-all duration-200 shadow-lg">
+                        <i class="fas fa-search mr-2"></i>검색 실행
+                    </button>
+                </div>
             </div>
         </div>
 
