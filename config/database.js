@@ -1,13 +1,13 @@
 const { Client, Pool } = require('pg');
 
 const dbConfig = {
-  connectionString: 'postgresql://postgres.lhqzjnpwuftaicjurqxq:UnbleYum1106!@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres',
+  connectionString: 'postgresql://unble:npg_1kjV0mhECxqs@ep-divine-bird-a1f4mly5.ap-southeast-1.pg.koyeb.app/unble',
   ssl: {
     rejectUnauthorized: false
   },
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 10000,
 };
 
 const pool = new Pool(dbConfig);

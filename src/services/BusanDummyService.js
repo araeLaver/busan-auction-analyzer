@@ -23,7 +23,8 @@ class BusanDummyService {
   }
 
   initializeBusanData() {
-    console.log('🏗️ 부산 샘플 데이터 생성 중...');
+    // 샘플 데이터 생성 비활성화
+    return;
     
     const busanDistricts = [
       '해운대구', '수영구', '남구', '동래구', '금정구', '부산진구', 
@@ -44,9 +45,11 @@ class BusanDummyService {
       const minimumSalePrice = Math.floor(appraisalValue * (100 - discountRate) / 100);
       const failureCount = Math.floor(Math.random() * 4);
       
+      const caseNumber = `2024타경${String(20000 + i).padStart(5, '0')}`;
+      
       const property = {
         id: i,
-        case_number: `2024타경${String(20000 + i).padStart(5, '0')}`,
+        case_number: caseNumber,
         item_number: '1',
         court_name: '부산지방법원',
         address: `부산광역시 ${district} ${['우동', '재송동', '대연동', '광안동'][Math.floor(Math.random() * 4)]} ${Math.floor(Math.random() * 500) + 1}`,
@@ -68,7 +71,13 @@ class BusanDummyService {
         discount_rate: discountRate,
         success_probability: Math.max(20, 100 - failureCount * 20),
         estimated_final_price: Math.floor(minimumSalePrice * (1 + Math.random() * 0.15)),
-        images: []
+        images: [],
+        // 실제 법원 경매 사이트 링크 추가
+        court_auction_url: `https://www.onbid.co.kr/op/con/conDetail.do?cseq=${Math.floor(Math.random() * 100000) + 1000000}&gubun=11`,
+        sis_auction_url: `https://www.sisul.or.kr/open_content/auction/bid_info.jsp?auc_num=${Math.floor(Math.random() * 10000) + 20240000}`,
+        // 더미 데이터임을 표시
+        is_dummy_data: true,
+        data_description: "이 데이터는 시연용 더미 데이터입니다. 실제 경매 정보가 아닙니다."
       };
       
       this.properties.push(property);

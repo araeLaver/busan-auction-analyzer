@@ -35,7 +35,7 @@ async function loadDashboardStats() {
         document.getElementById('totalProperties').textContent = stats.totalActiveProperties?.toLocaleString() || '0';
         document.getElementById('newToday').textContent = stats.newTodayCount?.toLocaleString() || '0';
         document.getElementById('avgScore').textContent = stats.averageInvestmentScore || '0';
-        document.getElementById('highScore').textContent = stats.highScoreCount?.toLocaleString() || '0';
+        document.getElementById('sGradeProperties').textContent = stats.highScoreCount?.toLocaleString() || '0';
 
         // 마지막 업데이트 시간 표시
         document.getElementById('lastUpdate').textContent = `마지막 업데이트: ${new Date().toLocaleString()}`;
@@ -505,14 +505,85 @@ function generateDetailContent(property) {
                 </div>
             ` : ''}
 
-            <!-- 원본 링크 -->
-            <div class="pt-4 border-t">
-                <a href="${property.source_url || '#'}" target="_blank" 
-                   class="inline-flex items-center text-blue-600 hover:text-blue-800 text-sm">
-                    <i class="fas fa-external-link-alt mr-2"></i>
-                    법원경매정보에서 보기
-                </a>
-            </div>
+            <!-- 더미 데이터 안내 -->
+            ${property.is_dummy_data ? `
+                <div class="pt-4 border-t">
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                        <div class="flex items-start">
+                            <i class="fas fa-exclamation-triangle text-yellow-500 mr-3 mt-1"></i>
+                            <div>
+                                <h5 class="font-medium text-yellow-800 mb-1">시연용 더미 데이터</h5>
+                                <p class="text-sm text-yellow-700 mb-3">${property.data_description}</p>
+                                <div class="space-y-2">
+                                    <p class="text-sm text-yellow-700 font-medium">실제 경매 정보는 아래 사이트에서 확인하세요:</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <a href="${property.court_auction_url}" target="_blank" 
+                                           class="inline-flex items-center px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+                                            <i class="fas fa-gavel mr-2"></i>
+                                            온비드 (법원경매)
+                                        </a>
+                                        <a href="https://www.courtauction.go.kr" target="_blank" 
+                                           class="inline-flex items-center px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                                            <i class="fas fa-building mr-2"></i>
+                                            법원경매정보
+                                        </a>
+                                        <a href="https://www.goodauction.land" target="_blank" 
+                                           class="inline-flex items-center px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition-colors">
+                                            <i class="fas fa-chart-line mr-2"></i>
+                                            굿옥션랜드
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ` : `
+                <!-- 실제 데이터 안내 -->
+                <div class="pt-4 border-t">
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                        <div class="flex items-start">
+                            <i class="fas fa-check-circle text-green-500 mr-3 mt-1"></i>
+                            <div>
+                                <h5 class="font-medium text-green-800 mb-1">실제 경매 데이터</h5>
+                                <p class="text-sm text-green-700 mb-3">${property.data_description || '실제 경매 정보입니다.'}</p>
+                                <div class="space-y-2">
+                                    <p class="text-sm text-green-700 font-medium">실제 경매 사이트에서 상세정보 확인:</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <a href="https://www.courtauction.go.kr/RetrieveRealEstDetailInqSaList.laf?jiwonNm=${encodeURIComponent(property.court_name || '')}&caseNo=${encodeURIComponent(property.case_number || '')}" target="_blank" 
+                                           class="inline-flex items-center px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+                                            <i class="fas fa-gavel mr-2"></i>
+                                            법원경매정보 (${property.case_number})
+                                        </a>
+                                        <a href="https://www.goodauction.land" target="_blank" 
+                                           class="inline-flex items-center px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition-colors">
+                                            <i class="fas fa-search mr-2"></i>
+                                            굿옥션
+                                        </a>
+                                        <a href="https://www.onbid.co.kr" target="_blank" 
+                                           class="inline-flex items-center px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
+                                            <i class="fas fa-building mr-2"></i>
+                                            온비드
+                                        </a>
+                                    </div>
+                                    <p class="text-xs text-green-600 mt-2">
+                                        <i class="fas fa-info-circle mr-1"></i>
+                                        사건번호 <strong>${property.case_number}</strong>로 직접 검색하여 최신 경매 상태를 확인하세요.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- 원본 링크 -->
+                <div
+                    <a href="${property.source_url || '#'}" target="_blank" 
+                       class="inline-flex items-center text-blue-600 hover:text-blue-800 text-sm">
+                        <i class="fas fa-external-link-alt mr-2"></i>
+                        법원경매정보에서 보기
+                    </a>
+                </div>
+            `}
         </div>
     `;
 }

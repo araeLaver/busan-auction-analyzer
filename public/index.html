@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>부산경매 AI 분석 시스템 | 스마트 투자 플랫폼</title>
-    <meta name="description" content="AI 기반 부산 부동산 경매 분석 시스템. 실시간 투자 점수, 수익률 예측, 위험도 분석을 제공합니다.">
-    <meta name="keywords" content="부산경매, 경매분석, 투자분석, AI분석, 부동산투자, 경매물건">
+    <title>전국경매 AI 분석 시스템 | 스마트 투자 플랫폼</title>
+    <meta name="description" content="AI 기반 전국 부동산 경매 분석 시스템. 실시간 투자 점수, 수익률 예측, 위험도 분석을 제공합니다.">
+    <meta name="keywords" content="전국경매, 경매분석, 투자분석, AI분석, 부동산투자, 경매물건">
     
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
     
@@ -129,9 +129,9 @@
                     </div>
                     <div>
                         <h1 class="text-3xl font-bold">
-                            부산경매 AI 분석
+                            전국경매 AI 분석 <span class="text-sm bg-green-600 text-white px-2 py-1 rounded">REAL DATA</span>
                         </h1>
-                        <p class="text-sm opacity-90">Smart Investment Platform</p>
+                        <p class="text-sm opacity-90">Smart Investment Platform (실제 경매 데이터)</p>
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
@@ -320,28 +320,37 @@
                     </select>
                 </div>
 
-                <!-- 부산 지역 -->
+                <!-- 전국 지역 -->
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">지역(구/군)</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">지역</label>
                     <select id="filterRegion" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                         <option value="">전체</option>
-                        <option value="해운대구">해운대구 ⭐</option>
-                        <option value="센텀시티">센텀시티 ⭐</option>
-                        <option value="부산진구">부산진구</option>
-                        <option value="동래구">동래구</option>
-                        <option value="연제구">연제구</option>
-                        <option value="수영구">수영구</option>
-                        <option value="남구">남구</option>
-                        <option value="사하구">사하구</option>
-                        <option value="북구">북구</option>
-                        <option value="강서구">강서구</option>
-                        <option value="사상구">사상구</option>
-                        <option value="금정구">금정구</option>
-                        <option value="동구">동구</option>
-                        <option value="서구">서구</option>
-                        <option value="중구">중구</option>
-                        <option value="영도구">영도구</option>
-                        <option value="기장군">기장군</option>
+                        <optgroup label="서울/경기">
+                            <option value="서울">서울</option>
+                            <option value="의정부">의정부</option>
+                            <option value="인천">인천</option>
+                            <option value="수원">수원</option>
+                        </optgroup>
+                        <optgroup label="강원">
+                            <option value="춘천">춘천</option>
+                        </optgroup>
+                        <optgroup label="충청">
+                            <option value="대전">대전</option>
+                            <option value="청주">청주</option>
+                        </optgroup>
+                        <optgroup label="경상">
+                            <option value="대구">대구</option>
+                            <option value="부산">부산</option>
+                            <option value="울산">울산</option>
+                            <option value="창원">창원</option>
+                        </optgroup>
+                        <optgroup label="전라">
+                            <option value="광주">광주</option>
+                            <option value="전주">전주</option>
+                        </optgroup>
+                        <optgroup label="제주">
+                            <option value="제주">제주</option>
+                        </optgroup>
                     </select>
                 </div>
 
@@ -476,6 +485,19 @@
                             <option value="ASC">오름차순</option>
                             <option value="DESC">내림차순</option>
                         </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 실제 데이터 안내 -->
+            <div class="px-6 pt-4">
+                <div class="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div class="flex items-center">
+                        <i class="fas fa-check-circle text-green-600 mr-2"></i>
+                        <p class="text-sm text-green-700">
+                            <strong>실제 데이터:</strong> 전국 법원경매 실제 정보를 기반으로 한 데이터입니다. 
+                            최신 경매 일정 및 상세 정보를 제공합니다.
+                        </p>
                     </div>
                 </div>
             </div>

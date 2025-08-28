@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>API 테스트</h1>
+    <button onclick="testAPI()">대시보드 API 테스트</button>
+    <div id="result"></div>
+
+    <script>
+    async function testAPI() {
+        try {
+            console.log('API 호출 시작...');
+            const response = await fetch('/api/dashboard/stats');
+            console.log('Response:', response);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            console.log('Data:', data);
+            
+            document.getElementById('result').innerHTML = `
+                <h2>성공!</h2>
+                <p>전체 물건: ${data.totalActiveProperties}</p>
+                <p>오늘 신규: ${data.newTodayCount}</p>
+                <p>평균 점수: ${data.averageInvestmentScore}</p>
+            `;
+        } catch (error) {
+            console.error('API 테스트 오류:', error);
+            document.getElementById('result').innerHTML = `
+                <h2>오류 발생!</h2>
+                <p>${error.message}</p>
+            `;
+        }
+    }
+    </script>
+</body>
+</html>

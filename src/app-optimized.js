@@ -108,7 +108,8 @@ class OptimizedBusanAuctionApp {
           styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://cdn.tailwindcss.com"],
           fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
           imgSrc: ["'self'", "data:", "https:"],
-          connectSrc: ["'self'", "ws:", "wss:"]
+          connectSrc: ["'self'", "ws:", "wss:"],
+          scriptSrcAttr: ["'unsafe-inline'"]  // 인라인 이벤트 핸들러 허용
         }
       }
     }));
@@ -298,116 +299,70 @@ class OptimizedBusanAuctionApp {
 
     // === 물건 목록 API ===
     router.get('/properties', async (req, res) => {
-      const {
-        page = 1,
-        limit = 20,
-        sort = 'investment_score',
-        order = 'DESC',
-        type,
-        region,
-        minPrice,
-        maxPrice,
-        minScore,
-        grade,
-        failureCount,
-        roi,
-        tenant
-      } = req.query;
+      try {
+        const {
+          page = 1,
+          limit = 10,
+          sort = 'investment_score',
+          order = 'DESC',
+          type,
+          region,
+          minPrice,
+          maxPrice,
+          minScore,
+          grade,
+          failureCount,
+          roi,
+          tenant
+        } = req.query;
 
-      // 데이터베이스 대신 목업 데이터를 바로 반환
-      const mockProperties = {
-          properties: [
-            {
-              id: 1,
-              case_number: '2024타경12345',
-              property_type: '아파트',
-              address: '부산 해운대구 마린시티 2로 38',
-              region: '해운대구',
-              floor_info: '15층/25층',
-              area: 84.56,
-              auction_date: '2024-12-15',
-              appraised_value: 850000000,
-              minimum_bid: 595000000,
-              bid_count: 3,
-              failure_count: 1,
-              investment_score: 92,
-              profitability_score: 88,
-              risk_score: 15,
-              liquidity_score: 85,
-              grade: 'A',
-              tenant_info: '임차인 없음',
-              expected_roi: 23.5,
-              market_price: 920000000,
-              discount_rate: 30,
-              status: 'active'
-            },
-            {
-              id: 2,
-              case_number: '2024타경12346',
-              property_type: '단독주택',
-              address: '부산 수영구 광안해변로 344',
-              region: '수영구',
-              floor_info: '2층',
-              area: 165.23,
-              auction_date: '2024-12-18',
-              appraised_value: 680000000,
-              minimum_bid: 476000000,
-              bid_count: 2,
-              failure_count: 0,
-              investment_score: 85,
-              profitability_score: 82,
-              risk_score: 22,
-              liquidity_score: 78,
-              grade: 'B',
-              tenant_info: '임차인 있음 (보증금 2억)',
-              expected_roi: 18.2,
-              market_price: 720000000,
-              discount_rate: 30,
-              status: 'active'
-            },
-            {
-              id: 3,
-              case_number: '2024타경12347',
-              property_type: '상가',
-              address: '부산 부산진구 서면로 68',
-              region: '부산진구',
-              floor_info: '1층',
-              area: 120.45,
-              auction_date: '2024-12-20',
-              appraised_value: 1200000000,
-              minimum_bid: 960000000,
-              bid_count: 5,
-              failure_count: 2,
-              investment_score: 78,
-              profitability_score: 75,
-              risk_score: 35,
-              liquidity_score: 72,
-              grade: 'B',
-              tenant_info: '임차인 있음 (월세)',
-              expected_roi: 15.8,
-              market_price: 1300000000,
-              discount_rate: 20,
-              status: 'active'
-            }
-          ],
-          total: 156,
-          totalPages: 52,
-          currentPage: parseInt(req.query.page || 1),
-          hasMore: parseInt(req.query.page || 1) < 52
+        const filters = {
+          propertyType: type,
+          region,
+          minPrice: minPrice ? parseInt(minPrice) : undefined,
+          maxPrice: maxPrice ? parseInt(maxPrice) : undefined,
+          minScore: minScore ? parseInt(minScore) : undefined
         };
-      
-      // 프론트엔드가 기대하는 구조로 변환
-      const formattedResponse = {
-        data: mockProperties.properties,
-        pagination: {
-          page: mockProperties.currentPage,
-          totalPages: mockProperties.totalPages,
-          total: mockProperties.total,
-          hasMore: mockProperties.hasMore
-        }
-      };
-      
-      res.json(formattedResponse);
+
+        // CacheService를 통해 데이터 조회
+        const result = await this.cacheService.getPropertiesList(
+          filters, 
+          parseInt(page), 
+          parseInt(limit), 
+          sort, 
+          order
+        );
+
+        // 프론트엔드가 기대하는 구조로 변환
+        const formattedResponse = {
+          data: result.properties || [],
+          pagination: {
+            page: result.page || 1,
+            limit: result.limit || 10,
+            total: result.total || 0,
+            totalPages: result.totalPages || 0,
+            hasNext: result.hasNext || false,
+            hasPrev: result.hasPrev || false
+          }
+        };
+        
+        res.json(formattedResponse);
+
+      } catch (error) {
+        console.error('❌ 물건 목록 조회 실패:', error);
+        res.status(500).json({ 
+          error: '물건 목록 조회 실패',
+          data: [],
+          pagination: {
+            page: 1,
+            limit: 10,
+            total: 0,
+            totalPages: 0,
+            hasNext: false,
+            hasPrev: false
+          }
+        });
+      }
     });
 
     // === 물건 상세 API ===
