@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/app-optimized.js",
     "dev": "nodemon src/app-optimized.js",
-    "scrape": "node scripts/run-scraper.js", 
+    "scrape": "node scripts/run-scraper.js",
     "analyze": "node scripts/run-analyzer.js",
     "full": "node scripts/run-full-process.js",
     "setup-db": "node scripts/setup-database.js",
@@ -22,7 +22,7 @@
   "keywords": [
     "auction",
     "busan",
-    "real-estate", 
+    "real-estate",
     "ai-analysis",
     "investment",
     "scraping",
@@ -48,7 +48,9 @@
     "node-cron": "^3.0.3",
     "pg": "^8.13.1",
     "puppeteer": "^24.0.0",
-    "socket.io": "^4.8.0"
+    "socket.io": "^4.8.0",
+    "tough-cookie": "^6.0.0",
+    "xml2js": "^0.6.2"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

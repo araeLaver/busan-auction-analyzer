@@ -26,24 +26,61 @@ class RealAuctionScraper {
             console.log('🚀 실제 경매 데이터 수집기 초기화 중...');
             
             this.browser = await puppeteer.launch({
-                headless: 'new',
+                headless: false, // 웹 방화벽 우회를 위해 headless 모드 해제
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
-                    '--disable-gpu'
+                    '--disable-gpu',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--start-maximized'
                 ]
             });
             
             this.page = await this.browser.newPage();
             
-            // User-Agent 설정
-            await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            // 더 사실적인 브라우저 환경 설정
+            await this.page.evaluateOnNewDocument(() => {
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+                
+                // Chrome에서 자동화 감지 방지
+                window.navigator.chrome = {
+                    runtime: {},
+                };
+                
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['ko-KR', 'ko', 'en-US', 'en'],
+                });
+                
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                });
+            });
+            
+            // 실제 브라우저처럼 보이는 User-Agent 설정
+            await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36');
+            
+            // 추가 헤더 설정
+            await this.page.setExtraHTTPHeaders({
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0'
+            });
             
             // 뷰포트 설정
-            await this.page.setViewport({ width: 1366, height: 768 });
+            await this.page.setViewport({ width: 1920, height: 1080 });
             
-            console.log('✅ 브라우저 초기화 완료');
+            console.log('✅ 브라우저 초기화 완료 (웹 방화벽 우회 설정 적용)');
             
         } catch (error) {
             console.error('❌ 스크래퍼 초기화 실패:', error);
@@ -58,16 +95,40 @@ class RealAuctionScraper {
         try {
             console.log(`🔍 부산 경매 물건 검색 중... (최대 ${limit}개)`);
             
-            // 법원경매정보 메인 페이지로 이동
-            await this.page.goto(`${this.baseUrl}/ib/gd/w/sr/sr.html`, {
+            // 1단계: 메인 페이지 먼저 접속 (자연스러운 접근)
+            console.log('🌐 법원경매정보 메인 페이지 접속 중...');
+            await this.page.goto(this.baseUrl, {
                 waitUntil: 'networkidle2',
-                timeout: 30000
+                timeout: 45000
             });
             
-            console.log('📄 법원경매정보 사이트 접속 완료');
+            // 사람처럼 행동하기 위한 랜덤 대기
+            await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
             
-            // 잠시 대기
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // 페이지 상태 확인
+            const title = await this.page.title();
+            console.log('📄 현재 페이지 제목:', title);
+            
+            // 차단 페이지인지 확인
+            if (title.includes('시스템안내') || title.includes('blocked')) {
+                console.log('🛡️ 웹 방화벽 감지됨. 우회 시도 중...');
+                
+                // 새로운 페이지로 다시 시도
+                await this.page.reload({ waitUntil: 'networkidle2' });
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+            
+            // 2단계: 경매 검색 페이지로 이동
+            console.log('🔍 경매 검색 페이지 접속 중...');
+            await this.page.goto(`${this.baseUrl}/ib/gd/w/sr/sr.html`, {
+                waitUntil: 'networkidle2',
+                timeout: 45000
+            });
+            
+            console.log('📄 법원경매정보 검색 페이지 접속 완료');
+            
+            // 페이지 로딩 완료까지 충분한 대기
+            await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 2000));
             
             // 부산 지역 검색 설정
             await this.setupBusanSearch();
@@ -108,15 +169,75 @@ class RealAuctionScraper {
         try {
             console.log('🏛️ 부산 지역 검색 조건 설정 중...');
             
-            // 법원 선택 (부산지방법원)
-            const courtSelector = 'select[name="idJwonNm"]';
-            await this.page.waitForSelector(courtSelector, { timeout: 10000 });
-            await this.page.select(courtSelector, '340000'); // 부산지방법원 코드
+            // 페이지에서 사용 가능한 모든 select 요소 확인
+            const selectors = await this.page.$$eval('select', els => 
+                els.map(el => ({
+                    name: el.name,
+                    id: el.id,
+                    className: el.className,
+                    optionsCount: el.options.length
+                }))
+            );
             
-            console.log('✅ 부산지방법원 선택 완료');
+            console.log('🔍 페이지에서 발견된 select 요소들:', selectors);
             
-            // 잠시 대기
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // 여러 가능한 선택자들 시도
+            const possibleSelectors = [
+                'select[name="idJwonNm"]',
+                'select[name="court"]',
+                '#court',
+                '.court-select',
+                'select:first-of-type'
+            ];
+            
+            let courtSelector = null;
+            for (const selector of possibleSelectors) {
+                try {
+                    const element = await this.page.$(selector);
+                    if (element) {
+                        courtSelector = selector;
+                        console.log(`✅ 법원 선택자 발견: ${selector}`);
+                        break;
+                    }
+                } catch (e) {
+                    continue;
+                }
+            }
+            
+            if (courtSelector) {
+                // 마우스 움직임 시뮬레이션
+                const element = await this.page.$(courtSelector);
+                const box = await element.boundingBox();
+                
+                if (box) {
+                    await this.page.mouse.move(box.x + box.width/2, box.y + box.height/2);
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                
+                // 부산지방법원 선택 시도 (여러 가능한 값들)
+                const busanCodes = ['340000', '부산지방법원', 'busan', '부산'];
+                let selected = false;
+                
+                for (const code of busanCodes) {
+                    try {
+                        await this.page.select(courtSelector, code);
+                        console.log(`✅ 부산지방법원 선택 완료 (코드: ${code})`);
+                        selected = true;
+                        break;
+                    } catch (e) {
+                        continue;
+                    }
+                }
+                
+                if (!selected) {
+                    console.log('⚠️ 부산지방법원 코드를 찾을 수 없음. 전체 검색으로 진행');
+                }
+            } else {
+                console.log('⚠️ 법원 선택 요소를 찾을 수 없음. 전체 검색으로 진행');
+            }
+            
+            // 사람처럼 잠시 대기
+            await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
             
         } catch (error) {
             console.warn('⚠️ 검색 조건 설정 중 오류:', error.message);

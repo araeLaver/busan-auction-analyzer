@@ -329,20 +329,20 @@ function displayPagination(pagination) {
 function applyFilters() {
     const filters = {};
     
-    const type = document.getElementById('filterType').value;
-    if (type) filters.propertyType = type;
+    const typeElement = document.getElementById('filterType');
+    if (typeElement && typeElement.value) filters.propertyType = typeElement.value;
     
-    const region = document.getElementById('filterRegion').value;
-    if (region) filters.region = region;
+    const regionElement = document.getElementById('filterRegion');
+    if (regionElement && regionElement.value) filters.region = regionElement.value;
     
-    const minPrice = document.getElementById('filterMinPrice').value;
-    if (minPrice) filters.minPrice = parseInt(minPrice); // 억원 단위로 전송
+    const minPriceElement = document.getElementById('filterMinPrice');
+    if (minPriceElement && minPriceElement.value) filters.minPrice = parseInt(minPriceElement.value);
     
-    const maxPrice = document.getElementById('filterMaxPrice').value;
-    if (maxPrice) filters.maxPrice = parseInt(maxPrice); // 억원 단위로 전송
+    const maxPriceElement = document.getElementById('filterMaxPrice');
+    if (maxPriceElement && maxPriceElement.value) filters.maxPrice = parseInt(maxPriceElement.value);
     
-    const minScore = document.getElementById('filterMinScore').value;
-    if (minScore) filters.minScore = parseInt(minScore);
+    const minScoreElement = document.getElementById('filterMinScore');
+    if (minScoreElement && minScoreElement.value) filters.minScore = parseInt(minScoreElement.value);
     
     currentFilters = filters;
     currentPage = 1; // 첫 페이지로 리셋
