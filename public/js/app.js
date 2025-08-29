@@ -23,6 +23,18 @@ function setupEventListeners() {
         currentSort.order = e.target.value;
         loadProperties();
     });
+    
+    // 지역 필터 자동 적용
+    document.getElementById('filterRegion').addEventListener('change', (e) => {
+        console.log('🏢 지역 필터 변경:', e.target.value);
+        applyFilters();
+    });
+    
+    // 물건 종류 필터 자동 적용
+    document.getElementById('filterType').addEventListener('change', (e) => {
+        console.log('🏠 물건 종류 필터 변경:', e.target.value);
+        applyFilters();
+    });
 }
 
 // 대시보드 통계 로드
@@ -60,6 +72,8 @@ async function loadProperties() {
         });
 
         console.log(`📋 물건 목록 로딩... (페이지: ${currentPage})`);
+        console.log('🔗 요청 URL:', `/api/properties?${params}`);
+        console.log('📋 필터 파라미터:', currentFilters);
         const response = await fetch(`/api/properties?${params}`);
         const data = await response.json();
 
@@ -86,6 +100,12 @@ function updatePropertyCount(pagination) {
         const start = (page - 1) * limit + 1;
         const end = Math.min(page * limit, total);
         countElement.textContent = `(${start}-${end}/${total}개)`;
+    }
+    
+    // 필터 결과 카운트 업데이트
+    const resultCountElement = document.getElementById('filterResultCount');
+    if (resultCountElement) {
+        resultCountElement.textContent = total.toLocaleString();
     }
 }
 
@@ -328,6 +348,20 @@ function applyFilters() {
     currentPage = 1; // 첫 페이지로 리셋
     
     console.log('🔍 필터 적용:', currentFilters);
+    
+    // 필터 적용 중 표시
+    const resultCountElement = document.getElementById('filterResultCount');
+    const propertiesContainer = document.getElementById('propertiesContainer');
+    
+    if (resultCountElement) {
+        resultCountElement.textContent = '검색 중...';
+    }
+    
+    // 검색 중 표시를 위한 임시 메시지
+    if (propertiesContainer) {
+        propertiesContainer.innerHTML = '<div class="text-center py-8"><div class="text-gray-600">🔍 지역별 물건을 검색하고 있습니다...</div></div>';
+    }
+    
     loadProperties();
 }
 
