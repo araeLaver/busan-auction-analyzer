@@ -65,8 +65,8 @@ class DatabaseAuctionService {
             try {
                 const offset = (page - 1) * limit;
                 
-                // 필터 조건 구성
-                let whereConditions = ['p.current_status = $1'];
+                // 필터 조건 구성 (실제 데이터만 표시)
+                let whereConditions = ['p.current_status = $1', 'p.is_real_data = true'];
                 let queryParams = ['active'];
                 let paramIndex = 2;
                 
@@ -116,19 +116,37 @@ class DatabaseAuctionService {
                 const countResult = await client.query(countQuery, queryParams);
                 const totalCount = parseInt(countResult.rows[0].total);
                 
-                // 페이징된 데이터 쿼리 (properties_detailed 뷰 사용)
+                // 페이징된 데이터 쿼리 
                 const dataQuery = `
                     SELECT 
-                        pd.*,
+                        p.*,
+                        c.name as court_full_name,
+                        ar.investment_score,
+                        ar.investment_grade,
+                        ar.profitability_score,
+                        ar.risk_score,
+                        ar.liquidity_score,
+                        ar.location_score,
+                        ar.roi_1year,
+                        ar.roi_3year,
+                        ar.success_probability,
+                        ar.estimated_final_price,
+                        ar.analyzed_at,
                         CASE 
-                            WHEN pd.investment_score >= 85 THEN 'EXCELLENT'
-                            WHEN pd.investment_score >= 70 THEN 'GOOD'
-                            WHEN pd.investment_score >= 50 THEN 'AVERAGE'
+                            WHEN p.appraisal_value IS NULL OR p.appraisal_value = 0 THEN 0
+                            ELSE ROUND(((p.appraisal_value - p.minimum_sale_price)::numeric * 100.0) / p.appraisal_value::numeric, 2)
+                        END AS calculated_discount_rate,
+                        CASE 
+                            WHEN ar.investment_score >= 85 THEN 'EXCELLENT'
+                            WHEN ar.investment_score >= 70 THEN 'GOOD'
+                            WHEN ar.investment_score >= 50 THEN 'AVERAGE'
                             ELSE 'POOR'
                         END as investment_category
-                    FROM auction_service.properties_detailed pd
+                    FROM auction_service.properties p
+                    LEFT JOIN auction_service.courts c ON p.court_id = c.id
+                    LEFT JOIN auction_service.analysis_results ar ON p.id = ar.property_id
                     WHERE ${whereClause}
-                    ORDER BY pd.created_at DESC, pd.investment_score DESC NULLS LAST
+                    ORDER BY p.created_at DESC, ar.investment_score DESC NULLS LAST
                     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
                 `;
                 
