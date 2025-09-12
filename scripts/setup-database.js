@@ -7,7 +7,7 @@ const client = new Client({
   port: 5432,
   database: 'postgres',
   user: 'postgres.lhqzjnpwuftaicjurqxq',
-  password: 'UnbleYum1106!',
+  password: 'Unbleyum1106!',
   ssl: {
     rejectUnauthorized: false,
     require: true

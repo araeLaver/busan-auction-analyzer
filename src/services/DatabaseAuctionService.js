@@ -12,12 +12,12 @@ class DatabaseAuctionService {
             
             try {
                 // 대시보드 통계 뷰에서 데이터 가져오기
-                const statsResult = await client.query('SELECT * FROM auction_service.dashboard_stats');
+                const statsResult = await client.query('SELECT * FROM public.dashboard_stats');
                 const stats = statsResult.rows[0] || {};
                 
                 // 추가 통계 계산
                 const totalResult = await client.query(
-                    'SELECT COUNT(*) as total_properties FROM auction_service.properties WHERE current_status = $1',
+                    'SELECT COUNT(*) as total_properties FROM public.properties WHERE current_status = $1',
                     ['active']
                 );
                 
@@ -26,7 +26,7 @@ class DatabaseAuctionService {
                         AVG(minimum_sale_price) as avg_price,
                         MIN(minimum_sale_price) as min_price,
                         MAX(minimum_sale_price) as max_price
-                    FROM auction_service.properties 
+                    FROM public.properties 
                     WHERE current_status = $1
                 `, ['active']);
                 
@@ -109,26 +109,26 @@ class DatabaseAuctionService {
                 // 전체 카운트 쿼리
                 const countQuery = `
                     SELECT COUNT(*) as total 
-                    FROM auction_service.properties p 
+                    FROM public.properties p 
                     WHERE ${whereClause}
                 `;
                 
                 const countResult = await client.query(countQuery, queryParams);
                 const totalCount = parseInt(countResult.rows[0].total);
                 
-                // 페이징된 데이터 쿼리 (properties_detailed 뷰 사용)
+                // 페이징된 데이터 쿼리 (investment_score 없이 간단하게)
                 const dataQuery = `
                     SELECT 
-                        pd.*,
+                        p.*,
                         CASE 
-                            WHEN pd.investment_score >= 85 THEN 'EXCELLENT'
-                            WHEN pd.investment_score >= 70 THEN 'GOOD'
-                            WHEN pd.investment_score >= 50 THEN 'AVERAGE'
+                            WHEN p.discount_rate >= 0.3 THEN 'EXCELLENT'
+                            WHEN p.discount_rate >= 0.2 THEN 'GOOD'
+                            WHEN p.discount_rate >= 0.1 THEN 'AVERAGE'
                             ELSE 'POOR'
                         END as investment_category
-                    FROM auction_service.properties_detailed pd
-                    WHERE ${whereClause}
-                    ORDER BY pd.created_at DESC, pd.investment_score DESC NULLS LAST
+                    FROM public.properties p
+                    WHERE ${whereClause.replace(/pd\./g, 'p.')}
+                    ORDER BY p.created_at DESC, p.discount_rate DESC NULLS LAST
                     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
                 `;
                 
@@ -169,15 +169,15 @@ class DatabaseAuctionService {
                 
                 const query = `
                     SELECT 
-                        pd.*,
+                        p.*,
                         CASE 
-                            WHEN pd.investment_score >= 85 THEN 'EXCELLENT'
-                            WHEN pd.investment_score >= 70 THEN 'GOOD'
-                            WHEN pd.investment_score >= 50 THEN 'AVERAGE'
+                            WHEN p.discount_rate >= 0.3 THEN 'EXCELLENT'
+                            WHEN p.discount_rate >= 0.2 THEN 'GOOD'
+                            WHEN p.discount_rate >= 0.1 THEN 'AVERAGE'
                             ELSE 'POOR'
                         END as investment_category
-                    FROM auction_service.properties_detailed pd
-                    WHERE ${isNumericId ? 'pd.id = $1' : 'pd.case_number = $1'}
+                    FROM public.properties p
+                    WHERE ${isNumericId ? 'p.id = $1' : 'p.case_number = $1'}
                 `;
                 
                 const result = await client.query(query, [propertyId]);
@@ -255,7 +255,7 @@ class DatabaseAuctionService {
             
             try {
                 let query = `
-                    SELECT * FROM auction_service.market_trends 
+                    SELECT * FROM public.market_trends 
                     WHERE 1=1
                 `;
                 const params = [];

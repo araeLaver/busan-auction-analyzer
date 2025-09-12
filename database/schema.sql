@@ -296,7 +296,7 @@ CREATE TABLE IF NOT EXISTS notification_queue (
 -- 성능 최적화 인덱스 생성
 -- Properties 테이블 인덱스
 CREATE INDEX IF NOT EXISTS idx_properties_case_number ON properties(case_number);
-CREATE INDEX IF NOT EXISTS idx_properties_address ON properties USING gin(to_tsvector('korean', address));
+CREATE INDEX IF NOT EXISTS idx_properties_address ON properties USING gin(to_tsvector('simple', address));
 CREATE INDEX IF NOT EXISTS idx_properties_auction_date ON properties(auction_date);
 CREATE INDEX IF NOT EXISTS idx_properties_property_type ON properties(property_type);
 CREATE INDEX IF NOT EXISTS idx_properties_current_status ON properties(current_status);

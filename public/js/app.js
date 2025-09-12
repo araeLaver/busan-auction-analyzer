@@ -130,7 +130,7 @@ function displayProperties(properties) {
                 <div class="flex-1">
                     <div class="flex items-center space-x-2 mb-2">
                         <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">
-                            ${property.case_number}-${property.item_number}
+                            ${property.case_number}
                         </span>
                         <span class="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded-full">
                             ${property.property_type || '기타'}

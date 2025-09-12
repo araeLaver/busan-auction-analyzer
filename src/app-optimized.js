@@ -477,7 +477,7 @@ class OptimizedBusanAuctionApp {
             console.log('✅ 스크래핑 완료:', result);
             
             // 캐시 무효화
-            this.cacheService.clearAllCache();
+            this.cacheService.clearAllCaches();
             
             // Socket.IO로 업데이트 알림
             this.socketService.io?.emit('scraping-complete', result);
@@ -509,7 +509,7 @@ class OptimizedBusanAuctionApp {
 
     router.delete('/admin/cache', (req, res) => {
       try {
-        this.cacheService.clearAllCache();
+        this.cacheService.clearAllCaches();
         res.json({ message: '캐시가 초기화되었습니다' });
       } catch (error) {
         res.status(500).json({ error: '캐시 초기화 실패' });

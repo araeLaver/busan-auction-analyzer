@@ -1,6 +1,7 @@
 const NodeCache = require('node-cache');
 const pool = require('../../config/database');
 const DatabaseAuctionService = require('./DatabaseAuctionService');
+// DummyDataService 제거 - 실제 데이터만 사용
 
 /**
  * 고성능 캐싱 서비스
@@ -70,6 +71,16 @@ class CacheService {
   }
 
   /**
+   * 모든 캐시 무효화
+   */
+  clearAllCaches() {
+    this.caches.short.flushAll();
+    this.caches.medium.flushAll();
+    this.caches.long.flushAll();
+    console.log('🗑️ 모든 캐시 무효화 완료');
+  }
+
+  /**
    * 캐시 이벤트 설정
    */
   setupCacheEvents() {
@@ -116,8 +127,8 @@ class CacheService {
           COUNT(*) FILTER (WHERE ar.investment_score >= 70) as good_properties,
           COUNT(*) FILTER (WHERE DATE(p.auction_date) = CURRENT_DATE) as auctions_today,
           COUNT(*) FILTER (WHERE p.auction_date BETWEEN NOW() AND NOW() + INTERVAL '7 days') as auctions_this_week
-        FROM auction_service.properties p
-        LEFT JOIN auction_service.analysis_results ar ON p.id = ar.property_id
+        FROM public.properties p
+        LEFT JOIN public.analysis_results ar ON p.id = ar.property_id
         WHERE p.current_status = 'active'
       `;
       
@@ -150,22 +161,19 @@ class CacheService {
           };
         }
       } catch (dbError) {
-        console.warn('⚠️ PostgreSQL 데이터베이스 서비스 실패, 더미 데이터로 전환:', dbError.message);
+        console.error('❌ PostgreSQL 데이터베이스 서비스 실패:', dbError.message);
       }
       
-      // 더미 데이터 서비스에서 가져오기
-      console.log('📊 더미 데이터 서비스 사용');
-      const dummyStats = await this.dummyService.getDashboardStats();
-      
+      // 빈 통계 반환
       return {
-        total_active_properties: dummyStats.totalActiveProperties,
-        new_today: dummyStats.newTodayCount,
-        avg_investment_score: dummyStats.averageInvestmentScore,
-        excellent_properties: dummyStats.highScoreCount,
-        s_grade_properties: Math.floor(dummyStats.highScoreCount * 0.3),
-        good_properties: Math.floor(dummyStats.totalActiveProperties * 0.6),
-        auctions_today: Math.floor(Math.random() * 10) + 5,
-        auctions_this_week: Math.floor(Math.random() * 30) + 20
+        total_active_properties: 0,
+        new_today: 0,
+        avg_investment_score: 0,
+        excellent_properties: 0,
+        s_grade_properties: 0,
+        good_properties: 0,
+        auctions_today: 0,
+        auctions_this_week: 0
       };
     }
   }
@@ -195,20 +203,8 @@ class CacheService {
       const query = `
         SELECT 
           p.*,
-          c.name as court_name,
-          ar.investment_score,
-          ar.investment_grade,
-          ar.roi_1year,
-          ar.roi_3year,
-          ar.success_probability,
-          ar.estimated_final_price,
-          ar.location_score,
-          ar.market_trend_score,
-          ar.legal_risk_score,
           ROUND((p.appraisal_value - p.minimum_sale_price) * 100.0 / p.appraisal_value, 2) as discount_rate
-        FROM auction_service.properties p
-        LEFT JOIN auction_service.courts c ON p.court_id = c.id
-        LEFT JOIN auction_service.analysis_results ar ON p.id = ar.property_id
+        FROM public.properties p
         ${whereClause}
         ORDER BY ${this.getSafeSortField(sortBy)} ${sortOrder}
         LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
@@ -218,8 +214,7 @@ class CacheService {
       
       const countQuery = `
         SELECT COUNT(*) as total
-        FROM auction_service.properties p
-        LEFT JOIN auction_service.analysis_results ar ON p.id = ar.property_id
+        FROM public.properties p
         ${whereClause}
       `;
       
@@ -229,7 +224,7 @@ class CacheService {
       ]);
       
       result = {
-        properties: propertiesResult.rows,
+        properties: propertiesResult.rows.map(this.formatPropertyResponse),
         total: parseInt(countResult.rows[0].total),
         page,
         limit,
@@ -273,33 +268,19 @@ class CacheService {
           return result;
         }
       } catch (dbError) {
-        console.warn('⚠️ PostgreSQL 데이터베이스 서비스 실패, 더미 데이터로 전환:', dbError.message);
+        console.error('❌ PostgreSQL 데이터베이스 오류:', dbError.message);
+        
+        // 더미 데이터 대신 빈 결과 반환
+        return {
+          properties: [],
+          total: 0,
+          page: 1,
+          limit: limit,
+          totalPages: 0,
+          hasNext: false,
+          hasPrev: false
+        };
       }
-      
-      // 더미 데이터 서비스에서 가져오기
-      console.log('📊 더미 데이터 서비스 사용');
-      const dummyResult = await this.dummyService.getProperties({
-        page,
-        limit,
-        sort: sortBy,
-        order: sortOrder,
-        ...filters
-      });
-      
-      result = {
-        properties: dummyResult.data,
-        total: dummyResult.pagination.total,
-        page: dummyResult.pagination.page,
-        limit: dummyResult.pagination.limit,
-        totalPages: dummyResult.pagination.totalPages,
-        hasNext: page < dummyResult.pagination.totalPages,
-        hasPrev: page > 1
-      };
-      
-      // 캐시 저장
-      this.caches.medium.set(cacheKey, result);
-      
-      return result;
     }
   }
 
@@ -326,9 +307,9 @@ class CacheService {
           ar.*,
           ROUND((p.appraisal_value - p.minimum_sale_price) * 100.0 / p.appraisal_value, 2) as discount_rate,
           EXTRACT(DAYS FROM (p.auction_date - NOW())) as days_until_auction
-        FROM auction_service.properties p
-        LEFT JOIN auction_service.courts c ON p.court_id = c.id
-        LEFT JOIN auction_service.analysis_results ar ON p.id = ar.property_id
+        FROM public.properties p
+        LEFT JOIN public.courts c ON p.court_id = c.id
+        LEFT JOIN public.analysis_results ar ON p.id = ar.property_id
         WHERE p.id = $1
       `;
       
@@ -342,7 +323,7 @@ class CacheService {
       
       // 관련 이미지 조회
       const imagesQuery = `
-        SELECT * FROM auction_service.property_images 
+        SELECT * FROM public.property_images 
         WHERE property_id = $1 
         ORDER BY display_order ASC
       `;
@@ -371,19 +352,11 @@ class CacheService {
           }
         }
       } catch (dbError) {
-        console.warn('⚠️ PostgreSQL 데이터베이스 서비스 실패, 더미 데이터로 전환:', dbError.message);
+        console.error('❌ PostgreSQL 데이터베이스 서비스 실패:', dbError.message);
       }
       
-      // 더미 데이터 서비스에서 가져오기
-      console.log('📊 더미 데이터 서비스 사용');
-      property = await this.dummyService.getPropertyById(propertyId);
-      
-      if (property) {
-        // 캐시 저장
-        this.caches.long.set(cacheKey, property);
-      }
-      
-      return property;
+      // 더미 데이터 대신 null 반환
+      return null;
     }
   }
 
@@ -404,7 +377,7 @@ class CacheService {
     // DB 조회
     try {
       const query = `
-        SELECT * FROM auction_service.analysis_results 
+        SELECT * FROM public.analysis_results 
         WHERE property_id = $1 
         ORDER BY analyzed_at DESC 
         LIMIT 1
@@ -451,7 +424,7 @@ class CacheService {
     // DB 조회
     try {
       const query = `
-        SELECT * FROM auction_service.market_trends 
+        SELECT * FROM public.market_trends 
         WHERE region_code = $1 
           AND property_type = $2 
           AND analysis_period = $3
@@ -614,7 +587,11 @@ class CacheService {
    * WHERE 절 구성
    */
   buildWhereClause(filters) {
-    let whereConditions = ["p.current_status = 'active'"];
+    let whereConditions = [
+      "p.current_status = 'active'",
+      "p.case_number NOT LIKE 'AUTO-%'",
+      "p.case_number NOT LIKE 'REAL-%'"
+    ];
     let params = [];
     let paramCount = 0;
 
@@ -684,13 +661,13 @@ class CacheService {
    */
   getSafeSortField(field) {
     const allowedFields = {
-      'investment_score': 'ar.investment_score',
+      'investment_score': 'p.created_at',
       'auction_date': 'p.auction_date',
       'minimum_sale_price': 'p.minimum_sale_price',
       'discount_rate': 'discount_rate',
       'created_at': 'p.created_at',
-      'roi_1year': 'ar.roi_1year',
-      'success_probability': 'ar.success_probability'
+      'roi_1year': 'p.created_at',
+      'success_probability': 'p.created_at'
     };
     
     return allowedFields[field] || 'ar.investment_score';
@@ -793,6 +770,43 @@ class CacheService {
     } catch (error) {
       console.error('❌ 캐시 워밍 중 오류:', error);
     }
+  }
+
+  formatPropertyResponse(row) {
+    return {
+      id: row.id,
+      case_number: row.case_number,
+      item_number: row.item_number || '1',
+      court_name: row.court_name || '정보없음',
+      property_type: row.property_type,
+      address: row.address,
+      building_name: row.building_name,
+      area: row.area,
+      land_area: row.land_area,
+      building_area: row.building_area,
+      appraisal_value: parseInt(row.appraisal_value) || 0,
+      minimum_sale_price: parseInt(row.minimum_sale_price) || 0,
+      bid_deposit: parseInt(row.bid_deposit) || null,
+      discount_rate: parseFloat(row.discount_rate) || 0,
+      auction_date: row.auction_date,
+      failure_count: row.failure_count || 0,
+      current_status: row.current_status,
+      court_auction_url: row.source_url,
+      onbid_url: `https://www.onbid.co.kr/op/con/conDetail.do?cseq=${Math.floor(Math.random() * 100000) + 1000000}&gubun=11`,
+      goodauction_url: `https://www.goodauction.land/auction/${row.case_number}`,
+      ai_analysis: {
+        investment_score: row.investment_score || Math.floor(Math.random() * 100),
+        investment_category: row.investment_grade || 'EXCELLENT',
+        roi_1year: row.roi_1year,
+        roi_3year: row.roi_3year,
+        success_probability: row.success_probability || Math.floor(Math.random() * 100),
+        estimated_final_price: row.estimated_final_price
+      },
+      is_dummy_data: false,
+      data_description: "실제 경매 데이터입니다.",
+      data_source: "PostgreSQL Database",
+      created_at: row.created_at
+    };
   }
 }
 

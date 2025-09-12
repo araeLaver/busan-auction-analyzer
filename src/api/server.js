@@ -2,12 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const pool = require('../../config/database');
-const DummyDataService = require('../services/DummyDataService');
-const BusanDummyService = require('../services/BusanDummyService');
-
-// 더미 데이터 서비스 초기화
-const dummyService = new DummyDataService();
-const busanService = new BusanDummyService();
+// 더미 데이터 서비스 제거 - 실제 데이터만 사용
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,9 +22,14 @@ app.get('/api/dashboard/stats', async (req, res) => {
   try {
     console.log('📊 대시보드 통계 조회 중...');
     
-    // 부산 더미 데이터 사용
-    const stats = await busanService.getDashboardStats();
-    console.log('✅ 대시보드 통계 조회 완료 (더미 데이터):', stats);
+    // 더미 데이터 대신 기본값 반환
+    const stats = {
+      totalActiveProperties: 0,
+      newTodayCount: 0,
+      averageInvestmentScore: 0,
+      highScoreCount: 0
+    };
+    console.log('✅ 대시보드 통계 조회 완료 (더미 데이터 제거):', stats);
     res.json(stats);
 
   } catch (error) {
@@ -47,10 +47,19 @@ app.get('/api/dashboard/stats', async (req, res) => {
 // 물건 목록 조회
 app.get('/api/properties', async (req, res) => {
   try {
-    console.log('🏠 물건 목록 조회 중... (더미 데이터)', req.query);
+    console.log('🏠 물건 목록 조회 중... (더미 데이터 제거)', req.query);
     
-    const result = await busanService.getProperties(req.query);
-    console.log(`✅ 물건 목록 조회 완료: ${result.properties.length}건`);
+    // 더미 데이터 대신 빈 결과 반환
+    const result = {
+      data: [],
+      pagination: {
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0
+      }
+    };
+    console.log(`✅ 물건 목록 조회 완룈: ${result.data.length}건`);
     res.json(result);
 
   } catch (error) {
@@ -63,7 +72,8 @@ app.get('/api/properties', async (req, res) => {
 app.get('/api/properties/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const property = await dummyService.getPropertyById(id);
+    // 더미 데이터 대신 null 반환
+    const property = null;
 
     if (!property) {
       return res.status(404).json({ error: '물건을 찾을 수 없습니다.' });
@@ -81,7 +91,8 @@ app.get('/api/properties/:id', async (req, res) => {
 // 지역별 통계
 app.get('/api/stats/regions', async (req, res) => {
   try {
-    const result = await dummyService.getRegionStats();
+    // 더미 데이터 대신 빈 배열 반환
+    const result = [];
     res.json(result);
 
   } catch (error) {
@@ -115,7 +126,8 @@ app.get('/api/reports/daily/:date?', async (req, res) => {
 app.get('/api/logs/scraping', async (req, res) => {
   try {
     const { limit = 10 } = req.query;
-    const result = await dummyService.getScrapingLogs(parseInt(limit));
+    // 더미 데이터 대신 빈 배열 반환
+    const result = [];
     res.json(result);
 
   } catch (error) {
@@ -128,7 +140,8 @@ app.get('/api/logs/scraping', async (req, res) => {
 app.get('/api/properties/top', async (req, res) => {
   try {
     const { type = 'score', limit = 10 } = req.query;
-    const result = await dummyService.getTopProperties(type, parseInt(limit));
+    // 더미 데이터 대신 빈 배열 반환
+    const result = [];
     res.json(result);
 
   } catch (error) {
