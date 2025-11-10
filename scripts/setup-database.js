@@ -1,23 +1,10 @@
-const { Client } = require('pg');
+const pool = require('../config/database');
 const fs = require('fs');
 const path = require('path');
 
-const client = new Client({
-  host: 'aws-0-ap-northeast-2.pooler.supabase.com',
-  port: 5432,
-  database: 'postgres',
-  user: 'postgres.lhqzjnpwuftaicjurqxq',
-  password: 'Unbleyum1106!',
-  ssl: {
-    rejectUnauthorized: false,
-    require: true
-  }
-});
-
 async function setupDatabase() {
+  const client = await pool.connect();
   try {
-    console.log('데이터베이스 연결 중...');
-    await client.connect();
     console.log('✅ 데이터베이스 연결 성공');
 
     // 스키마 파일 읽기
@@ -32,7 +19,7 @@ async function setupDatabase() {
     const result = await client.query(`
       SELECT table_name 
       FROM information_schema.tables 
-      WHERE table_schema = 'public' 
+      WHERE table_schema = 'analyzer' 
       AND table_type = 'BASE TABLE'
       ORDER BY table_name;
     `);
@@ -46,7 +33,7 @@ async function setupDatabase() {
     const viewResult = await client.query(`
       SELECT table_name 
       FROM information_schema.views 
-      WHERE table_schema = 'public'
+      WHERE table_schema = 'analyzer'
       ORDER BY table_name;
     `);
 
@@ -63,7 +50,7 @@ async function setupDatabase() {
       const columnResult = await client.query(`
         SELECT COUNT(*) as column_count 
         FROM information_schema.columns 
-        WHERE table_schema = 'public' 
+        WHERE table_schema = 'analyzer' 
         AND table_name = $1;
       `, [table.table_name]);
       
@@ -74,8 +61,9 @@ async function setupDatabase() {
     console.error('❌ 오류 발생:', error);
     process.exit(1);
   } finally {
-    await client.end();
+    client.release();
     console.log('\n✅ 데이터베이스 설정 완료');
+    await pool.end(); // 스크립트 종료 시 풀 전체 종료
   }
 }
 

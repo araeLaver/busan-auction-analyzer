@@ -1,3 +1,7 @@
+-- analyzer 스키마 생성 및 설정
+CREATE SCHEMA IF NOT EXISTS analyzer;
+SET search_path TO analyzer, public;
+
 -- 부산경매 분석 서비스 데이터베이스 스키마 (고도화 버전)
 -- 생성일: 2025-08-25
 -- 데이터베이스: PostgreSQL (Supabase)

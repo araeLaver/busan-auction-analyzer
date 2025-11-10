@@ -8,6 +8,7 @@ const dbConfig = {
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
+  options: '-c search_path=analyzer,public',
 };
 
 const pool = new Pool(dbConfig);
