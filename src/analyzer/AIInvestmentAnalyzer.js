@@ -681,8 +681,147 @@ class AIInvestmentAnalyzer {
     const futureValue = marketPrice * Math.pow(1 + appreciation, years);
     const annualRental = marketPrice * 0.04; // 4% 임대수익률 가정
     const totalReturn = (futureValue - investment) + (annualRental * years);
-    
+
     return (totalReturn / investment / years * 100);
+  }
+
+  /**
+   * 시장가 대비 비율 계산
+   */
+  async calculateMarketComparison(property) {
+    try {
+      const marketPrice = await this.estimateMarketPrice(property);
+      const minimumPrice = property.minimum_sale_price;
+
+      if (!marketPrice || !minimumPrice) return 0;
+
+      // 시장가 대비 최저가 비율 (%)
+      return ((minimumPrice / marketPrice) * 100);
+    } catch (error) {
+      console.error('시장가 비교 계산 오류:', error.message);
+      return 80; // 기본값 80%
+    }
+  }
+
+  /**
+   * 건물 상태 분석 점수
+   */
+  analyzeBuildingCondition(property) {
+    let score = 70; // 기본 70점
+
+    // 건축 연도 기반 점수
+    if (property.building_year) {
+      const age = new Date().getFullYear() - property.building_year;
+
+      if (age < 5) score = 95;        // 5년 미만: 거의 신축
+      else if (age < 10) score = 85;  // 5-10년: 매우 양호
+      else if (age < 15) score = 75;  // 10-15년: 양호
+      else if (age < 20) score = 65;  // 15-20년: 보통
+      else if (age < 30) score = 55;  // 20-30년: 다소 노후
+      else score = 40;                // 30년 이상: 노후
+    }
+
+    // 전용면적 기반 보정
+    if (property.exclusive_area) {
+      if (property.exclusive_area >= 100) score += 5;     // 대형 평수 선호
+      else if (property.exclusive_area < 40) score -= 5;  // 소형 평수 감점
+    }
+
+    // 층수 정보 기반 보정 (예: "15/25층")
+    if (property.floor_info) {
+      const floorMatch = property.floor_info.match(/(\d+)\/(\d+)/);
+      if (floorMatch) {
+        const currentFloor = parseInt(floorMatch[1]);
+        const totalFloors = parseInt(floorMatch[2]);
+
+        // 중층(30-70%)이 선호됨
+        const ratio = currentFloor / totalFloors;
+        if (ratio >= 0.3 && ratio <= 0.7) score += 3;
+        else if (ratio < 0.2 || ratio > 0.9) score -= 3;
+      }
+    }
+
+    return Math.min(Math.max(score, 0), 100);
+  }
+
+  /**
+   * 시장 트렌드 데이터 조회
+   */
+  async getMarketTrendData(region, propertyType, period = '3M') {
+    try {
+      // period: '1M', '3M', '6M', '1Y'
+      const periodMap = {
+        '1M': 30,
+        '3M': 90,
+        '6M': 180,
+        '1Y': 365
+      };
+
+      const days = periodMap[period] || 90;
+
+      // 해당 기간의 평균 가격 추이
+      const result = await pool.query(`
+        SELECT
+          AVG(minimum_sale_price) as avg_price,
+          COUNT(*) as property_count,
+          AVG(CASE WHEN current_status = 'sold' THEN 1 ELSE 0 END) * 100 as sold_rate
+        FROM analyzer.properties
+        WHERE address LIKE $1
+        AND property_type = $2
+        AND created_at >= NOW() - INTERVAL '${days} days'
+      `, [`%${region}%`, propertyType]);
+
+      const data = result.rows[0];
+
+      return {
+        avgPrice: parseFloat(data.avg_price) || 0,
+        propertyCount: parseInt(data.property_count) || 0,
+        soldRate: parseFloat(data.sold_rate) || 0,
+        period: period
+      };
+
+    } catch (error) {
+      console.error('시장 트렌드 데이터 조회 실패:', error.message);
+      return {
+        avgPrice: 0,
+        propertyCount: 0,
+        soldRate: 0,
+        period: period
+      };
+    }
+  }
+
+  /**
+   * 유사 물건 수 조회
+   */
+  async getComparablePropertiesCount(property) {
+    try {
+      const region = this.extractRegion(property.address);
+      const priceMin = property.minimum_sale_price * 0.8;
+      const priceMax = property.minimum_sale_price * 1.2;
+
+      const result = await pool.query(`
+        SELECT COUNT(*) as count
+        FROM analyzer.properties
+        WHERE property_type = $1
+        AND address LIKE $2
+        AND minimum_sale_price BETWEEN $3 AND $4
+        AND current_status = 'active'
+        AND id != $5
+      `, [
+        property.property_type,
+        `%${region}%`,
+        priceMin,
+        priceMax,
+        property.id
+      ]);
+
+      return parseInt(result.rows[0]?.count || 0);
+
+    } catch (error) {
+      console.error('유사 물건 수 조회 오류:', error.message);
+      return 0;
+    }
   }
 
   extractRegion(address) {
@@ -706,10 +845,46 @@ class AIInvestmentAnalyzer {
 
   getPriceRangeRisk(price) {
     if (price < 100000000) return 25;      // 1억 미만
-    if (price < 300000000) return 15;      // 3억 미만  
+    if (price < 300000000) return 15;      // 3억 미만
     if (price < 500000000) return 10;      // 5억 미만
     if (price < 1000000000) return 5;      // 10억 미만
     return 15;                             // 10억 이상
+  }
+
+  /**
+   * 시간 리스크 계산
+   */
+  getTimeRisk(daysUntilAuction) {
+    // days_until_auction이 없으면 0 리스크
+    if (!daysUntilAuction) return 0;
+
+    // 입찰일이 가까울수록 리스크 증가
+    if (daysUntilAuction < 7) return 15;   // 1주일 미만 - 급박
+    if (daysUntilAuction < 14) return 10;  // 2주일 미만
+    if (daysUntilAuction < 30) return 5;   // 1개월 미만
+    return 0;                               // 1개월 이상 - 충분한 시간
+  }
+
+  /**
+   * 지역 안정성 리스크
+   */
+  getLocationRisk(address) {
+    const region = this.extractRegion(address);
+    const regionScores = this.busanRegionScores[region];
+
+    if (!regionScores) {
+      return 15; // 지역 정보 없으면 중간 리스크
+    }
+
+    // 위치 점수가 높을수록 안정성 높음 (리스크 낮음)
+    const locationScore = regionScores.location;
+
+    if (locationScore >= 90) return 0;   // 최고급 지역
+    if (locationScore >= 80) return 3;
+    if (locationScore >= 70) return 5;
+    if (locationScore >= 60) return 8;
+    if (locationScore >= 50) return 10;
+    return 15;                            // 저급 지역
   }
 
   predictSuccessProbability(property, score) {
@@ -726,6 +901,77 @@ class AIInvestmentAnalyzer {
     const basePrice = property.minimum_sale_price;
     const competition = 1 + (score.total / 100 * 0.15);
     return Math.round(basePrice * competition);
+  }
+
+  /**
+   * 가격 상승률 계산 (지역 및 물건 유형 기반)
+   */
+  async calculatePriceAppreciation(property) {
+    // 기본 상승률
+    let appreciation = 0.03; // 3% 기본
+
+    // 지역별 조정
+    const region = this.extractRegion(property.address);
+    const regionScores = this.busanRegionScores[region];
+    if (regionScores) {
+      // 개발 점수가 높을수록 상승률 높음
+      appreciation += (regionScores.development / 100) * 0.02;
+    }
+
+    // 물건 유형별 조정
+    const typeScores = this.propertyTypeScores[property.property_type];
+    if (typeScores) {
+      appreciation += (typeScores.growth / 100) * 0.02;
+    }
+
+    // 최근 시장 트렌드 반영 (간단한 버전)
+    // 실제로는 DB에서 최근 거래 데이터를 가져와야 함
+    const marketTrend = 0.01; // 1% 추가
+
+    return appreciation + marketTrend;
+  }
+
+  /**
+   * 경쟁 수준 예측
+   */
+  predictCompetitionLevel(property, score) {
+    let level = 3; // 기본 중간 수준
+
+    // 점수가 높을수록 경쟁 치열
+    if (score.total >= 80) level = 5;
+    else if (score.total >= 65) level = 4;
+    else if (score.total >= 50) level = 3;
+    else if (score.total >= 35) level = 2;
+    else level = 1;
+
+    // 유찰 횟수가 많으면 경쟁 낮음
+    level = Math.max(1, level - property.failure_count);
+
+    return level;
+  }
+
+  /**
+   * 가격 변동성 예측
+   */
+  predictPriceVolatility(property, score) {
+    let volatility = 5; // 기본 중간값
+
+    // 물건 유형별 변동성
+    const typeVolatility = {
+      '아파트': 3,
+      '오피스텔': 5,
+      '상가': 7,
+      '토지': 8,
+      '빌라': 6,
+      '단독주택': 6
+    };
+
+    volatility = typeVolatility[property.property_type] || 5;
+
+    // 유찰 횟수가 많으면 변동성 증가
+    volatility += property.failure_count * 0.5;
+
+    return Math.min(10, Math.max(1, volatility));
   }
 
   generateFeatureSet(property) {
@@ -746,6 +992,59 @@ class AIInvestmentAnalyzer {
     if (price < 500000000) return '3-5억';
     if (price < 1000000000) return '5-10억';
     return '10억이상';
+  }
+
+  /**
+   * 지역별 거래량 조회
+   * 최근 90일간 해당 지역의 거래 완료 건수를 기반으로 거래량 점수 반환
+   */
+  async getRegionTransactionVolume(region, propertyType) {
+    try {
+      // 최근 90일간 해당 지역/유형의 낙찰 건수 조회
+      const result = await pool.query(`
+        SELECT COUNT(*) as transaction_count
+        FROM analyzer.properties
+        WHERE address LIKE $1
+        AND property_type = $2
+        AND current_status = 'sold'
+        AND updated_at >= NOW() - INTERVAL '90 days'
+      `, [`%${region}%`, propertyType]);
+
+      const count = parseInt(result.rows[0]?.transaction_count || 0);
+
+      // 거래량을 점수로 변환 (0-100)
+      // 0건: 0점, 10건: 50점, 20건 이상: 100점
+      return Math.min(count * 5, 100);
+
+    } catch (error) {
+      console.error('거래량 조회 오류:', error.message);
+      // 기본값 반환 (중간값)
+      return 50;
+    }
+  }
+
+  /**
+   * 가격대별 유동성 점수 계산
+   * 중간 가격대(3-5억)가 가장 유동성이 높음
+   */
+  getPriceLiquidityScore(price) {
+    // 1억 미만 - 낮은 가격대, 유동성 높음 (85점)
+    if (price < 100000000) return 85;
+
+    // 1-3억 - 가장 활발한 거래 구간 (95점)
+    if (price < 300000000) return 95;
+
+    // 3-5억 - 최고 유동성 구간 (100점)
+    if (price < 500000000) return 100;
+
+    // 5-10억 - 유동성 감소 시작 (75점)
+    if (price < 1000000000) return 75;
+
+    // 10-20억 - 유동성 낮음 (55점)
+    if (price < 2000000000) return 55;
+
+    // 20억 이상 - 매우 낮은 유동성 (35점)
+    return 35;
   }
 }
 
