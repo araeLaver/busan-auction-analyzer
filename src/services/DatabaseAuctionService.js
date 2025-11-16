@@ -11,25 +11,34 @@ class DatabaseAuctionService {
             const client = await pool.connect();
             
             try {
-                // 대시보드 통계 뷰에서 데이터 가져오기
-                const statsResult = await client.query('SELECT * FROM public.dashboard_stats');
+                // 대시보드 통계 직접 계산
+                const statsQuery = `
+                    SELECT
+                        COUNT(*) FILTER (WHERE p.current_status = 'active') as total_active_properties,
+                        COUNT(*) FILTER (WHERE DATE(p.created_at) = CURRENT_DATE) as new_today,
+                        ROUND(AVG(ar.investment_score), 1) as avg_investment_score,
+                        COUNT(*) FILTER (WHERE ar.investment_score >= 85) as excellent_properties,
+                        COUNT(*) FILTER (WHERE ar.investment_grade = 'S') as s_grade_properties,
+                        COUNT(*) FILTER (WHERE ar.investment_score >= 70) as good_properties,
+                        COUNT(*) FILTER (WHERE DATE(p.auction_date) = CURRENT_DATE) as auctions_today,
+                        COUNT(*) FILTER (WHERE p.auction_date BETWEEN NOW() AND NOW() + INTERVAL '7 days') as auctions_this_week
+                    FROM properties p
+                    LEFT JOIN analysis_results ar ON p.id = ar.property_id
+                    WHERE p.current_status = 'active'
+                `;
+                const statsResult = await client.query(statsQuery);
                 const stats = statsResult.rows[0] || {};
                 
                 // 추가 통계 계산
-                const totalResult = await client.query(
-                    'SELECT COUNT(*) as total_properties FROM public.properties WHERE current_status = $1',
-                    ['active']
-                );
-                
                 const avgPriceResult = await client.query(`
-                    SELECT 
+                    SELECT
                         AVG(minimum_sale_price) as avg_price,
                         MIN(minimum_sale_price) as min_price,
                         MAX(minimum_sale_price) as max_price
-                    FROM public.properties 
+                    FROM properties
                     WHERE current_status = $1
                 `, ['active']);
-                
+
                 const priceStats = avgPriceResult.rows[0] || {};
                 
                 return {
@@ -65,8 +74,8 @@ class DatabaseAuctionService {
             try {
                 const offset = (page - 1) * limit;
                 
-                // 필터 조건 구성 (실제 데이터만 표시)
-                let whereConditions = ['p.current_status = $1', 'p.is_real_data = true'];
+                // 필터 조건 구성
+                let whereConditions = ['p.current_status = $1'];
                 let queryParams = ['active'];
                 let paramIndex = 2;
                 

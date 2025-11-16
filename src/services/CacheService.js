@@ -118,7 +118,7 @@ class CacheService {
     console.log('💾 대시보드 통계 DB 조회');
     try {
       const query = `
-        SELECT 
+        SELECT
           COUNT(*) FILTER (WHERE p.current_status = 'active') as total_active_properties,
           COUNT(*) FILTER (WHERE DATE(p.created_at) = CURRENT_DATE) as new_today,
           ROUND(AVG(ar.investment_score), 1) as avg_investment_score,
@@ -127,8 +127,8 @@ class CacheService {
           COUNT(*) FILTER (WHERE ar.investment_score >= 70) as good_properties,
           COUNT(*) FILTER (WHERE DATE(p.auction_date) = CURRENT_DATE) as auctions_today,
           COUNT(*) FILTER (WHERE p.auction_date BETWEEN NOW() AND NOW() + INTERVAL '7 days') as auctions_this_week
-        FROM public.properties p
-        LEFT JOIN public.analysis_results ar ON p.id = ar.property_id
+        FROM properties p
+        LEFT JOIN analysis_results ar ON p.id = ar.property_id
         WHERE p.current_status = 'active'
       `;
       
@@ -201,10 +201,19 @@ class CacheService {
       const offset = (page - 1) * limit;
       
       const query = `
-        SELECT 
+        SELECT
           p.*,
-          ROUND((p.appraisal_value - p.minimum_sale_price) * 100.0 / p.appraisal_value, 2) as discount_rate
-        FROM public.properties p
+          c.name as court_name,
+          ar.investment_score,
+          ar.investment_grade,
+          ar.roi_1year,
+          ar.roi_3year,
+          ar.success_probability,
+          ar.estimated_final_price,
+          ROUND((p.appraisal_value - p.minimum_sale_price) * 100.0 / NULLIF(p.appraisal_value, 0), 2) as discount_rate
+        FROM properties p
+        LEFT JOIN courts c ON p.court_id = c.id
+        LEFT JOIN analysis_results ar ON p.id = ar.property_id
         ${whereClause}
         ORDER BY ${this.getSafeSortField(sortBy)} ${sortOrder}
         LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
@@ -214,7 +223,8 @@ class CacheService {
       
       const countQuery = `
         SELECT COUNT(*) as total
-        FROM public.properties p
+        FROM properties p
+        LEFT JOIN analysis_results ar ON p.id = ar.property_id
         ${whereClause}
       `;
       
@@ -301,15 +311,15 @@ class CacheService {
     console.log('💾 물건 상세 DB 조회:', propertyId);
     try {
       const query = `
-        SELECT 
+        SELECT
           p.*,
           c.name as court_name,
           ar.*,
-          ROUND((p.appraisal_value - p.minimum_sale_price) * 100.0 / p.appraisal_value, 2) as discount_rate,
+          ROUND((p.appraisal_value - p.minimum_sale_price) * 100.0 / NULLIF(p.appraisal_value, 0), 2) as discount_rate,
           EXTRACT(DAYS FROM (p.auction_date - NOW())) as days_until_auction
-        FROM public.properties p
-        LEFT JOIN public.courts c ON p.court_id = c.id
-        LEFT JOIN public.analysis_results ar ON p.id = ar.property_id
+        FROM properties p
+        LEFT JOIN courts c ON p.court_id = c.id
+        LEFT JOIN analysis_results ar ON p.id = ar.property_id
         WHERE p.id = $1
       `;
       
@@ -323,8 +333,8 @@ class CacheService {
       
       // 관련 이미지 조회
       const imagesQuery = `
-        SELECT * FROM public.property_images 
-        WHERE property_id = $1 
+        SELECT * FROM property_images
+        WHERE property_id = $1
         ORDER BY display_order ASC
       `;
       
@@ -377,9 +387,9 @@ class CacheService {
     // DB 조회
     try {
       const query = `
-        SELECT * FROM public.analysis_results 
-        WHERE property_id = $1 
-        ORDER BY analyzed_at DESC 
+        SELECT * FROM analysis_results
+        WHERE property_id = $1
+        ORDER BY analysis_date DESC
         LIMIT 1
       `;
       
@@ -390,11 +400,9 @@ class CacheService {
       }
       
       analysis = result.rows[0];
-      
-      // JSON 필드 파싱
-      if (analysis.analysis_features) {
-        analysis.analysis_features = JSON.parse(analysis.analysis_features);
-      }
+
+      // PostgreSQL JSONB는 이미 객체로 반환되므로 파싱 불필요
+      // analysis_features는 그대로 사용
       
       // 캐시 저장
       this.caches.long.set(cacheKey, analysis);
@@ -424,11 +432,11 @@ class CacheService {
     // DB 조회
     try {
       const query = `
-        SELECT * FROM public.market_trends 
-        WHERE region_code = $1 
-          AND property_type = $2 
+        SELECT * FROM market_trends
+        WHERE region_code = $1
+          AND property_type = $2
           AND analysis_period = $3
-        ORDER BY analyzed_at DESC 
+        ORDER BY analysis_date DESC
         LIMIT 1
       `;
       
@@ -587,11 +595,7 @@ class CacheService {
    * WHERE 절 구성
    */
   buildWhereClause(filters) {
-    let whereConditions = [
-      "p.current_status = 'active'",
-      "p.case_number NOT LIKE 'AUTO-%'",
-      "p.case_number NOT LIKE 'REAL-%'"
-    ];
+    let whereConditions = ["p.current_status = 'active'"];
     let params = [];
     let paramCount = 0;
 
@@ -661,16 +665,16 @@ class CacheService {
    */
   getSafeSortField(field) {
     const allowedFields = {
-      'investment_score': 'p.created_at',
+      'investment_score': 'COALESCE(ar.investment_score, 0)',
       'auction_date': 'p.auction_date',
       'minimum_sale_price': 'p.minimum_sale_price',
       'discount_rate': 'discount_rate',
       'created_at': 'p.created_at',
-      'roi_1year': 'p.created_at',
-      'success_probability': 'p.created_at'
+      'roi_1year': 'COALESCE(ar.roi_1year, 0)',
+      'success_probability': 'COALESCE(ar.success_probability, 0)'
     };
-    
-    return allowedFields[field] || 'ar.investment_score';
+
+    return allowedFields[field] || 'p.created_at';
   }
 
   /**

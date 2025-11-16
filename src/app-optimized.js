@@ -81,11 +81,17 @@ class OptimizedBusanAuctionApp {
       this.setupPerformanceMonitoring();
       
       // 캐시 워밍 (DB 연결 실패 시 스킵)
-      try {
-        await this.cacheService.warmupCache();
-      } catch (error) {
-        console.log('⚠️ 캐시 워밍 스킵 (DB 연결 없음):', error.message);
-      }
+      console.log('⚠️ 캐시 워밍 스킵 (초기 구동 속도 최적화)');
+      // 백그라운드에서 캐시 워밍 실행
+      setTimeout(async () => {
+        try {
+          console.log('🔥 백그라운드 캐시 워밍 시작...');
+          await this.cacheService.warmupCache();
+          console.log('✅ 백그라운드 캐시 워밍 완료');
+        } catch (error) {
+          console.log('⚠️ 캐시 워밍 실패 (DB 연결 없음):', error.message);
+        }
+      }, 3000);
       
       console.log('✅ 애플리케이션 초기화 완료');
       
@@ -257,44 +263,29 @@ class OptimizedBusanAuctionApp {
 
     // === 대시보드 API ===
     router.get('/dashboard/stats', async (req, res) => {
-      // 데이터베이스 대신 목업 데이터를 바로 반환
-      const mockStats = {
-          totalActiveProperties: 156,
-          newTodayCount: 12,
-          averageInvestmentScore: 78.5,
-          highScoreCount: 45,
-          totalProperties: 156,
-          todayProperties: 12,
-          averageScore: 78.5,
-          highValueProperties: 45,
-          recommendedProperties: 23,
-          riskProperties: 8,
-          regionStats: [
-            { region: '해운대구', count: 45, avgScore: 82 },
-            { region: '수영구', count: 38, avgScore: 79 },
-            { region: '남구', count: 29, avgScore: 75 },
-            { region: '부산진구', count: 24, avgScore: 73 },
-            { region: '동래구', count: 20, avgScore: 77 }
-          ],
-          typeStats: [
-            { type: '아파트', count: 89, avgScore: 80 },
-            { type: '단독주택', count: 34, avgScore: 72 },
-            { type: '상가', count: 23, avgScore: 85 },
-            { type: '토지', count: 10, avgScore: 68 }
-          ],
-          priceRanges: [
-            { range: '1억 미만', count: 23 },
-            { range: '1-3억', count: 56 },
-            { range: '3-5억', count: 42 },
-            { range: '5-10억', count: 28 },
-            { range: '10억 이상', count: 7 }
-          ],
-          recentTrends: {
-            week: [65, 72, 68, 74, 71, 76, 78],
-            labels: ['월', '화', '수', '목', '금', '토', '일']
-          }
+      try {
+        const stats = await this.cacheService.getDashboardStats();
+
+        // 프론트엔드 형식에 맞게 변환
+        const response = {
+          totalActiveProperties: parseInt(stats.total_active_properties) || 0,
+          newTodayCount: parseInt(stats.new_today) || 0,
+          averageInvestmentScore: parseFloat(stats.avg_investment_score) || 0,
+          highScoreCount: parseInt(stats.good_properties) || 0,
+          excellentProperties: parseInt(stats.excellent_properties) || 0,
+          sGradeProperties: parseInt(stats.s_grade_properties) || 0,
+          auctionsToday: parseInt(stats.auctions_today) || 0,
+          auctionsThisWeek: parseInt(stats.auctions_this_week) || 0
         };
-      res.json(mockStats);
+
+        res.json(response);
+      } catch (error) {
+        console.error('❌ 대시보드 통계 API 오류:', error);
+        res.status(500).json({
+          error: '대시보드 통계 조회 실패',
+          message: error.message
+        });
+      }
     });
 
     // === 물건 목록 API ===
@@ -549,48 +540,42 @@ class OptimizedBusanAuctionApp {
    * 에러 핸들링 설정
    */
   setupErrorHandling() {
+    const { errorHandler, notFoundHandler } = require('./utils/errorHandler');
+
     // 404 핸들러
-    this.app.use((req, res) => {
-      res.status(404).json({
-        error: 'Not Found',
-        message: `경로 ${req.path}를 찾을 수 없습니다`,
-        timestamp: new Date().toISOString()
-      });
-    });
+    this.app.use(notFoundHandler);
 
     // 전역 에러 핸들러
     this.app.use((err, req, res, next) => {
       this.metrics.errors++;
-      
-      console.error('❌ 서버 에러:', {
-        error: err.message,
-        stack: err.stack,
-        path: req.path,
-        method: req.method,
-        timestamp: new Date().toISOString()
-      });
-
-      const isDevelopment = process.env.NODE_ENV !== 'production';
-      
-      res.status(err.status || 500).json({
-        error: 'Internal Server Error',
-        message: isDevelopment ? err.message : '서버 오류가 발생했습니다',
-        ...(isDevelopment && { stack: err.stack }),
-        timestamp: new Date().toISOString()
-      });
+      errorHandler(err, req, res, next);
     });
 
     // Promise rejection 핸들링
     process.on('unhandledRejection', (reason, promise) => {
-      console.error('❌ Unhandled Promise Rejection:', reason);
-      // 로그 기록 후 계속 실행
+      console.error('❌ Unhandled Promise Rejection at:', promise, 'reason:', reason);
+      // 로그 기록하지만 서버는 계속 실행
     });
 
     // 예외 처리
     process.on('uncaughtException', (error) => {
       console.error('❌ Uncaught Exception:', error);
-      
+      console.error('서버를 안전하게 종료합니다...');
+
       // 안전한 종료
+      setTimeout(() => {
+        this.gracefulShutdown();
+      }, 1000);
+    });
+
+    // SIGTERM, SIGINT 핸들링
+    process.on('SIGTERM', () => {
+      console.log('📡 SIGTERM 신호 수신');
+      this.gracefulShutdown();
+    });
+
+    process.on('SIGINT', () => {
+      console.log('📡 SIGINT 신호 수신 (Ctrl+C)');
       this.gracefulShutdown();
     });
   }
@@ -746,15 +731,12 @@ module.exports = OptimizedBusanAuctionApp;
 // 직접 실행 시
 if (require.main === module) {
   const app = new OptimizedBusanAuctionApp();
-  
+
   const port = process.env.PORT || 3002;
-  
+
   app.start(port).catch((error) => {
     console.error('❌ 애플리케이션 시작 실패:', error);
+    console.error('상세 오류:', error.stack);
     process.exit(1);
   });
-  
-  // 종료 시그널 처리
-  process.on('SIGTERM', () => app.gracefulShutdown());
-  process.on('SIGINT', () => app.gracefulShutdown());
 }
