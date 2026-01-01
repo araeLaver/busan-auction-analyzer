@@ -38,15 +38,12 @@ class AdvancedCourtAuctionScraper {
       console.log('🚀 고급 스크래퍼 초기화 중...');
       
       this.browser = await puppeteer.launch({
-        headless: 'new', // 새로운 헤드리스 모드
+        headless: true, // 프로덕션을 위해 헤드리스 모드 기본값으로 설정
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
           '--disable-gpu',
-          '--disable-web-security',
-          '--disable-features=VizDisplayCompositor',
           '--no-first-run',
           '--no-zygote',
           '--single-process',
@@ -71,14 +68,17 @@ class AdvancedCourtAuctionScraper {
           '--hide-scrollbars',
           '--window-size=1920,1080',
           '--start-maximized',
-          // 추가 스텔스 모드
+          // AdvancedScraper.js에서 가져온 추가 스텔스 모드
           '--disable-blink-features=WebGLDebugRendererInfo',
           '--disable-webgl',
           '--disable-threaded-compositing',
           '--disable-partial-raster',
           '--disable-canvas-aa',
           '--disable-2d-canvas-clip-aa',
-          '--disable-gl-drawing-for-tests'
+          '--disable-gl-drawing-for-tests',
+          '--disable-popup-blocking', // AdvancedScraper.js에서 추가
+          '--disable-device-discovery-notifications', // AdvancedScraper.js에서 추가
+          '--allow-running-insecure-content' // AdvancedScraper.js에서 추가
         ],
         ignoreDefaultArgs: [
           '--enable-automation',
@@ -92,120 +92,10 @@ class AdvancedCourtAuctionScraper {
       
       this.page = await this.browser.newPage();
       
-      // 뷰포트 설정 - 일반적인 해상도 사용
-      await this.page.setViewport({
-        width: 1920 + Math.floor(Math.random() * 100),
-        height: 1080 + Math.floor(Math.random() * 100),
-        deviceScaleFactor: 1,
-        hasTouch: false,
-        isLandscape: true,
-        isMobile: false
-      });
+      // 모든 Anti-detection 스크립트 및 설정 적용
+      await this._applyAntiDetectionScripts(this.page);
       
-      // 랜덤 User-Agent 설정
-      const randomUA = this.userAgents[Math.floor(Math.random() * this.userAgents.length)];
-      await this.page.setUserAgent(randomUA);
-      console.log(`🎭 User-Agent 설정: ${randomUA.substring(0, 50)}...`);
-      
-      // 추가 헤더 설정
-      await this.page.setExtraHTTPHeaders({
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
-        'Cache-Control': 'max-age=0',
-        'sec-ch-ua': '"Chromium";v="120", "Google Chrome";v="120", "Not_A Brand";v="99"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1'
-      });
-      
-      // 권한 설정
-      await this.page.context().overridePermissions(this.baseUrl, [
-        'geolocation',
-        'notifications'
-      ]);
-      
-      // JavaScript 환경 설정 - 탐지 방지
-      await this.page.evaluateOnNewDocument(() => {
-        // webdriver 플래그 제거
-        Object.defineProperty(navigator, 'webdriver', {
-          get: () => undefined,
-        });
-        
-        // Chrome 객체 추가
-        window.chrome = {
-          runtime: {},
-          loadTimes: function() {},
-          csi: function() {},
-        };
-        
-        // Plugin 정보 추가
-        Object.defineProperty(navigator, 'plugins', {
-          get: () => [1, 2, 3, 4, 5]
-        });
-        
-        // Language 정보 설정
-        Object.defineProperty(navigator, 'languages', {
-          get: () => ['ko-KR', 'ko', 'en-US', 'en']
-        });
-        
-        // 시간대 설정
-        Date.prototype.getTimezoneOffset = function() {
-          return -540; // KST (UTC+9)
-        };
-        
-        // WebGL 정보 숨기기
-        const getParameter = WebGLRenderingContext.prototype.getParameter;
-        WebGLRenderingContext.prototype.getParameter = function(parameter) {
-          if (parameter === 37445) {
-            return 'Intel Open Source Technology Center';
-          }
-          if (parameter === 37446) {
-            return 'Mesa DRI Intel(R) Ivybridge Mobile ';
-          }
-          return getParameter.call(this, parameter);
-        };
-        
-        // Permissions API 오버라이드
-        if (navigator.permissions && navigator.permissions.query) {
-          const originalQuery = navigator.permissions.query;
-          navigator.permissions.query = (parameters) => (
-            parameters.name === 'notifications' ?
-              Promise.resolve({ state: Notification.permission }) :
-              originalQuery(parameters)
-          );
-        }
-        
-        // 마우스 이벤트 시뮬레이션을 위한 준비
-        window.simulateHumanBehavior = true;
-      });
-      
-      // 이미지 및 CSS 로딩 최적화
-      await this.page.setRequestInterception(true);
-      this.page.on('request', (req) => {
-        const resourceType = req.resourceType();
-        const url = req.url();
-        
-        // 불필요한 리소스 차단
-        if (resourceType === 'image' || resourceType === 'stylesheet' || 
-            resourceType === 'font' || resourceType === 'media') {
-          req.abort();
-        } else if (resourceType === 'script' && 
-                   (url.includes('analytics') || url.includes('ads') || 
-                    url.includes('tracking') || url.includes('gtm'))) {
-          req.abort();
-        } else {
-          req.continue();
-        }
-      });
-      
-      // 페이지 로드 타임아웃 설정
-      this.page.setDefaultNavigationTimeout(60000);
-      this.page.setDefaultTimeout(30000);
+      console.log('✅ 고급 스크래퍼 초기화 완료');
       
       console.log('✅ 고급 스크래퍼 초기화 완료');
       
@@ -243,10 +133,18 @@ class AdvancedCourtAuctionScraper {
   }
 
   /**
-   * Sleep 함수
+   * 슬립 함수
    */
-  sleep(ms) {
+  async sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * 사람처럼 자연스러운 딜레이
+   */
+  async humanDelay(base, variance = 0) {
+    const delay = base + (Math.random() * variance);
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
 
   /**
@@ -353,15 +251,42 @@ class AdvancedCourtAuctionScraper {
         
         await this.page.goto(this.baseUrl, { 
           waitUntil: ['networkidle0', 'domcontentloaded'],
-          timeout: 30000 
+          timeout: 60000 // 타임아웃 증가
         });
         
         // 인간적 행동 시뮬레이션
         await this.simulateHumanBehavior();
+        await this.humanDelay(2000, 1000); // 사람처럼 대기
         
         // 페이지 로드 확인
-        const title = await this.page.title();
+        let title = await this.page.title();
         console.log(`📄 페이지 제목: ${title}`);
+        
+        // WAF 감지 및 우회 시도 (AdvancedScraper.js 로직 통합)
+        if (title.includes('시스템안내') || title.includes('blocked') || title.includes('접근이 제한되었습니다')) {
+          console.log('🛡️ 웹 방화벽 감지됨. 우회 시도 중...');
+          
+          const newPage = await this.browser.newPage();
+          await this._applyAntiDetectionScripts(newPage); // 새로운 페이지에 Anti-detection 스크립트 적용
+          
+          await newPage.goto(this.baseUrl, {
+              waitUntil: ['networkidle0', 'domcontentloaded'],
+              timeout: 60000
+          });
+          
+          await this.page.close(); // 이전 페이지 닫기
+          this.page = newPage; // 새 페이지로 교체
+
+          title = await this.page.title(); // 새 페이지 제목 다시 확인
+          console.log(`📄 새 페이지 제목: ${title}`);
+
+          if (title.includes('법원경매') && !title.includes('시스템안내')) {
+            console.log('✅ WAF 우회 성공, 사이트 접속 성공');
+            return;
+          }
+          
+          throw new Error('WAF 우회 실패');
+        }
         
         if (title.includes('법원경매')) {
           console.log('✅ 사이트 접속 성공');
@@ -1013,6 +938,132 @@ class AdvancedCourtAuctionScraper {
     };
     
     return statusMap[status] || 'active';
+  }
+
+  /**
+   * Anti-detection 스크립트 및 요청 인터셉션 적용 헬퍼
+   * @param {Page} page - Puppeteer Page 객체
+   */
+  async _applyAntiDetectionScripts(page) {
+    // 뷰포트 설정 - 일반적인 해상도 사용
+    await page.setViewport({
+      width: 1920 + Math.floor(Math.random() * 100),
+      height: 1080 + Math.floor(Math.random() * 100),
+      deviceScaleFactor: 1,
+      hasTouch: false,
+      isLandscape: true,
+      isMobile: false
+    });
+    
+    // 랜덤 User-Agent 설정
+    const randomUA = this.userAgents[Math.floor(Math.random() * this.userAgents.length)];
+    await page.setUserAgent(randomUA);
+    console.log(`🎭 User-Agent 설정: ${randomUA.substring(0, 50)}...`);
+    
+    // 추가 헤더 설정 (AdvancedScraper.js에서 가져온 더 포괄적인 헤더)
+    await page.setExtraHTTPHeaders({
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Cache-Control': 'no-cache', 
+      'Pragma': 'no-cache', 
+      'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"', 
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1'
+    });
+    
+    // 권한 설정
+    await page.context().overridePermissions(this.baseUrl, [
+      'geolocation',
+      'notifications'
+    ]);
+    
+    // JavaScript 환경 설정 - 탐지 방지 (AdvancedScraper.js에서 가져온 더 포괄적인 로직)
+    await page.evaluateOnNewDocument(() => {
+      // webdriver 플래그 제거 (AdvancedScraper.js에서 가져옴)
+      delete navigator.__proto__.webdriver;
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
+      
+      // Chrome 객체 추가
+      window.chrome = {
+        runtime: {},
+        loadTimes: function() {},
+        csi: function() {},
+      };
+      
+      // Plugin 정보 추가 (AdvancedScraper.js에서 가져온 더 상세한 정보)
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+          { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+          { name: 'Shockwave Flash', filename: 'pepflashplayer.dll' },
+          { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+          { name: 'Native Client', filename: 'internal-nacl-plugin' }
+        ]
+      });
+      
+      // Language 정보 설정
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['ko-KR', 'ko', 'en-US', 'en']
+      });
+      
+      // 시간대 설정
+      Date.prototype.getTimezoneOffset = function() {
+        return -540; // KST (UTC+9)
+      };
+      
+      // WebGL 정보 숨기기
+      const getParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function(parameter) {
+        if (parameter === 37445) {
+          return 'Intel Open Source Technology Center';
+        }
+        if (parameter === 37446) {
+          return 'Mesa DRI Intel(R) Ivybridge Mobile ';
+        }
+        return getParameter.call(this, parameter);
+      };
+      
+      // Permissions API 오버라이드 (AdvancedScraper.js에서 가져옴)
+      const originalQuery = window.navigator.permissions.query;
+      window.navigator.permissions.query = (parameters) => (
+          parameters.name === 'notifications' ?
+              Promise.resolve({ state: Notification.permission }) :
+              originalQuery(parameters)
+      );
+      
+      // 마우스 이벤트 시뮬레이션을 위한 준비
+      window.simulateHumanBehavior = true;
+    });
+    
+    // 이미지 및 CSS 로딩 최적화
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      const resourceType = req.resourceType();
+      const url = req.url();
+      
+      // 불필요한 리소스 차단
+      if (resourceType === 'image' || resourceType === 'stylesheet' || 
+          resourceType === 'font' || resourceType === 'media') {
+        req.abort();
+      } else if (resourceType === 'script' && 
+                 (url.includes('analytics') || url.includes('ads') || 
+                  url.includes('tracking') || url.includes('gtm'))) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+    
+    // 페이지 로드 타임아웃 설정
+    page.setDefaultNavigationTimeout(60000);
+    page.setDefaultTimeout(30000);
   }
 
   /**

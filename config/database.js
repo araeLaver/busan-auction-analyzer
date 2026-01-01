@@ -43,3 +43,7 @@ pool.query('SELECT NOW()', (err, res) => {
 });
 
 module.exports = pool;
+
+// node-pg-migrate를 위해 dbConfig와 connectionString을 내보냄
+module.exports.dbConfig = dbConfig;
+module.exports.connectionString = `postgresql://${dbConfig.user}:${dbConfig.password}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}?sslmode=require`;

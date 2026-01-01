@@ -1,4 +1,6 @@
 const pool = require('../../config/database');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * AI 기반 부동산 경매 투자 분석 엔진
@@ -13,48 +15,16 @@ const pool = require('../../config/database');
 class AIInvestmentAnalyzer {
   constructor() {
     this.version = 'v2.0';
-    this.confidence = 0.85;
+    this.confidence = 0.85; // 모델 신뢰도는 나중에 동적으로 설정
     this.analysisStartTime = Date.now();
     
-    // 가중치 설정
-    this.weights = {
-      profitability: 0.40,  // 수익성 40%
-      risk: 0.30,          // 위험도 30%
-      liquidity: 0.30      // 유동성 30%
-    };
-    
-    // 부산 지역별 특성 점수
-    this.busanRegionScores = {
-      '해운대구': { location: 95, development: 90, liquidity: 95 },
-      '서면': { location: 90, development: 85, liquidity: 90 },
-      '센텀시티': { location: 95, development: 95, liquidity: 85 },
-      '광안리': { location: 85, development: 80, liquidity: 80 },
-      '남포동': { location: 70, development: 60, liquidity: 75 },
-      '사상구': { location: 60, development: 70, liquidity: 65 },
-      '강서구': { location: 55, development: 75, liquidity: 60 },
-      '금정구': { location: 65, development: 70, liquidity: 60 },
-      '북구': { location: 60, development: 65, liquidity: 55 },
-      '사하구': { location: 50, development: 60, liquidity: 50 },
-      '동구': { location: 55, development: 50, liquidity: 55 },
-      '중구': { location: 65, development: 60, liquidity: 70 },
-      '영도구': { location: 60, development: 65, liquidity: 60 },
-      '부산진구': { location: 75, development: 80, liquidity: 80 },
-      '동래구': { location: 80, development: 75, liquidity: 75 },
-      '연제구': { location: 85, development: 80, liquidity: 80 }
-    };
-    
-    // 물건 유형별 특성
-    this.propertyTypeScores = {
-      '아파트': { liquidity: 90, stability: 85, growth: 80 },
-      '오피스텔': { liquidity: 75, stability: 70, growth: 75 },
-      '빌라': { liquidity: 60, stability: 65, growth: 60 },
-      '단독주택': { liquidity: 55, stability: 70, growth: 65 },
-      '연립주택': { liquidity: 50, stability: 60, growth: 55 },
-      '상가': { liquidity: 40, stability: 50, growth: 85 },
-      '토지': { liquidity: 30, stability: 60, growth: 90 },
-      '공장': { liquidity: 25, stability: 40, growth: 70 },
-      '창고': { liquidity: 20, stability: 45, growth: 60 }
-    };
+    // 분석 설정 파일 로드
+    const configPath = path.join(__dirname, '..', '..', 'config', 'analysis.json');
+    this.config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+    this.weights = this.config.weights;
+    this.busanRegionScores = this.config.busanRegionScores;
+    this.propertyTypeScores = this.config.propertyTypeScores;
   }
 
   /**
@@ -99,8 +69,8 @@ class AIInvestmentAnalyzer {
         p.*,
         c.name as court_name,
         EXTRACT(DAYS FROM (p.auction_date - NOW())) as days_until_auction
-      FROM properties p
-      LEFT JOIN courts c ON p.court_id = c.id
+      FROM analyzer.properties p
+      LEFT JOIN analyzer.courts c ON p.court_id = c.id
       WHERE p.id = $1
     `;
     
@@ -278,11 +248,11 @@ class AIInvestmentAnalyzer {
     let liquidityScore = 0;
     
     // 물건 유형별 유동성 (40점)
-    const typeScore = this.propertyTypeScores[propertyType]?.liquidity || 50;
+    const typeScore = this.config.propertyTypeScores[propertyType]?.liquidity || 50;
     liquidityScore += typeScore * 0.4;
     
     // 지역별 유동성 (35점)
-    const regionScore = this.busanRegionScores[region]?.liquidity || 50;
+    const regionScore = this.config.busanRegionScores[region]?.liquidity || 50;
     liquidityScore += regionScore * 0.35;
     
     // 가격대별 유동성 (25점)
@@ -364,7 +334,7 @@ class AIInvestmentAnalyzer {
    */
   analyzeLocation(property) {
     const region = this.extractRegion(property.address);
-    const regionData = this.busanRegionScores[region];
+    const regionData = this.config.busanRegionScores[region];
     
     if (!regionData) {
       return { score: 50, region: '기타' };
@@ -424,9 +394,9 @@ class AIInvestmentAnalyzer {
     
     // 가중 평균으로 종합 점수 계산
     const weightedScore = 
-      (profitability.score * this.weights.profitability) +
-      ((100 - risk.score) * this.weights.risk) + // 리스크는 반전
-      (liquidity.score * this.weights.liquidity);
+      (profitability.score * this.config.weights.profitability) +
+      ((100 - risk.score) * this.config.weights.risk) + // 리스크는 반전
+      (liquidity.score * this.config.weights.liquidity);
     
     // 보정 요소 적용
     let adjustedScore = weightedScore;
@@ -528,14 +498,14 @@ class AIInvestmentAnalyzer {
       
       // 기존 분석 결과 확인
       const existingResult = await client.query(
-        'SELECT id FROM analysis_results WHERE property_id = $1',
+        'SELECT id FROM analyzer.analysis_results WHERE property_id = $1',
         [propertyId]
       );
       
       if (existingResult.rows.length > 0) {
         // 업데이트
         const updateQuery = `
-          UPDATE analysis_results SET 
+          UPDATE analyzer.analysis_results SET 
             discount_rate = $2,
             estimated_market_price = $3,
             market_comparison_rate = $4,
@@ -605,7 +575,7 @@ class AIInvestmentAnalyzer {
       } else {
         // 신규 삽입
         const insertQuery = `
-          INSERT INTO analysis_results (
+          INSERT INTO analyzer.analysis_results (
             property_id, discount_rate, estimated_market_price, market_comparison_rate,
             roi_1year, roi_3year, investment_score, profitability_score, risk_score,
             liquidity_score, location_score, building_condition_score, legal_risk_score,
@@ -671,7 +641,7 @@ class AIInvestmentAnalyzer {
     // 시장가 추정 로직 (추후 외부 API 연동 또는 ML 모델 적용)
     const basePrice = property.minimum_sale_price;
     const region = this.extractRegion(property.address);
-    const multiplier = this.busanRegionScores[region]?.liquidity || 50;
+    const multiplier = this.busanRegionScores[region]?.liquidity || this.config.predictionConfig.default_liquidity_multiplier;
     
     return Math.round(basePrice * (1 + multiplier / 200));
   }
@@ -836,19 +806,17 @@ class AIInvestmentAnalyzer {
 
   // 추가 헬퍼 메서드들은 실제 구현에서 계속...
   getPropertyTypeRisk(type) {
-    const riskMap = {
-      '아파트': 10, '오피스텔': 15, '빌라': 25, '단독주택': 20,
-      '연립주택': 30, '상가': 35, '토지': 40, '공장': 45, '창고': 50
-    };
+    const riskMap = this.config.riskMaps.type;
     return riskMap[type] || 30;
   }
 
   getPriceRangeRisk(price) {
-    if (price < 100000000) return 25;      // 1억 미만
-    if (price < 300000000) return 15;      // 3억 미만
-    if (price < 500000000) return 10;      // 5억 미만
-    if (price < 1000000000) return 5;      // 10억 미만
-    return 15;                             // 10억 이상
+    const priceRangeConfig = this.config.riskMaps.price_range;
+    if (price < 100000000) return priceRangeConfig.lt_100M;      // 1억 미만
+    if (price < 300000000) return priceRangeConfig.lt_300M;      // 3억 미만
+    if (price < 500000000) return priceRangeConfig.lt_500M;      // 5억 미만
+    if (price < 1000000000) return priceRangeConfig.lt_1B;      // 10억 미만
+    return priceRangeConfig.gt_1B;                             // 10억 이상
   }
 
   /**
@@ -856,13 +824,13 @@ class AIInvestmentAnalyzer {
    */
   getTimeRisk(daysUntilAuction) {
     // days_until_auction이 없으면 0 리스크
-    if (!daysUntilAuction) return 0;
+    if (!daysUntilAuction) return this.config.riskMaps.time.gt_30days;
 
     // 입찰일이 가까울수록 리스크 증가
-    if (daysUntilAuction < 7) return 15;   // 1주일 미만 - 급박
-    if (daysUntilAuction < 14) return 10;  // 2주일 미만
-    if (daysUntilAuction < 30) return 5;   // 1개월 미만
-    return 0;                               // 1개월 이상 - 충분한 시간
+    if (daysUntilAuction < 7) return this.config.riskMaps.time.lt_7days;
+    if (daysUntilAuction < 14) return this.config.riskMaps.time.lt_14days;
+    if (daysUntilAuction < 30) return this.config.riskMaps.time.lt_30days;
+    return this.config.riskMaps.time.gt_30days;
   }
 
   /**
@@ -870,7 +838,7 @@ class AIInvestmentAnalyzer {
    */
   getLocationRisk(address) {
     const region = this.extractRegion(address);
-    const regionScores = this.busanRegionScores[region];
+    const regionScores = this.config.busanRegionScores[region];
 
     if (!regionScores) {
       return 15; // 지역 정보 없으면 중간 리스크
@@ -878,28 +846,30 @@ class AIInvestmentAnalyzer {
 
     // 위치 점수가 높을수록 안정성 높음 (리스크 낮음)
     const locationScore = regionScores.location;
+    const locationStabilityConfig = this.config.riskMaps.location_stability;
 
-    if (locationScore >= 90) return 0;   // 최고급 지역
-    if (locationScore >= 80) return 3;
-    if (locationScore >= 70) return 5;
-    if (locationScore >= 60) return 8;
-    if (locationScore >= 50) return 10;
-    return 15;                            // 저급 지역
+    if (locationScore >= 90) return locationStabilityConfig.score_90_up;
+    if (locationScore >= 80) return locationStabilityConfig.score_80_up;
+    if (locationScore >= 70) return locationStabilityConfig.score_70_up;
+    if (locationScore >= 60) return locationStabilityConfig.score_60_up;
+    if (locationScore >= 50) return locationStabilityConfig.score_50_up;
+    return locationStabilityConfig.score_50_down;
   }
 
   predictSuccessProbability(property, score) {
-    let probability = 60; // 기본 확률
+    let probability = this.config.predictionConfig.success_probability.base; // 기본 확률
+    const successConfig = this.config.predictionConfig.success_probability;
     
-    probability += (score.total - 50) * 0.6;
-    probability -= property.failure_count * 8;
-    probability += (this.calculateDiscountRate(property) - 20) * 0.5;
+    probability += (score.total - 50) * successConfig.score_multiplier;
+    probability -= property.failure_count * successConfig.failure_penalty;
+    probability += (this.calculateDiscountRate(property) - successConfig.discount_rate_base) * successConfig.discount_rate_multiplier;
     
     return probability;
   }
 
   predictFinalPrice(property, score) {
     const basePrice = property.minimum_sale_price;
-    const competition = 1 + (score.total / 100 * 0.15);
+    const competition = 1 + (score.total / 100 * this.config.predictionConfig.final_price.competition_multiplier);
     return Math.round(basePrice * competition);
   }
 
@@ -908,25 +878,26 @@ class AIInvestmentAnalyzer {
    */
   async calculatePriceAppreciation(property) {
     // 기본 상승률
-    let appreciation = 0.03; // 3% 기본
+    let appreciation = this.config.predictionConfig.appreciation.base_rate; // 3% 기본
+    const appConfig = this.config.predictionConfig.appreciation;
 
     // 지역별 조정
     const region = this.extractRegion(property.address);
-    const regionScores = this.busanRegionScores[region];
+    const regionScores = this.config.busanRegionScores[region];
     if (regionScores) {
       // 개발 점수가 높을수록 상승률 높음
-      appreciation += (regionScores.development / 100) * 0.02;
+      appreciation += (regionScores.development / 100) * appConfig.region_development_bonus;
     }
 
     // 물건 유형별 조정
-    const typeScores = this.propertyTypeScores[property.property_type];
+    const typeScores = this.config.propertyTypeScores[property.property_type];
     if (typeScores) {
-      appreciation += (typeScores.growth / 100) * 0.02;
+      appreciation += (typeScores.growth / 100) * appConfig.property_type_growth_bonus;
     }
 
     // 최근 시장 트렌드 반영 (간단한 버전)
     // 실제로는 DB에서 최근 거래 데이터를 가져와야 함
-    const marketTrend = 0.01; // 1% 추가
+    const marketTrend = appConfig.market_trend_bonus; // 1% 추가
 
     return appreciation + marketTrend;
   }
@@ -935,17 +906,19 @@ class AIInvestmentAnalyzer {
    * 경쟁 수준 예측
    */
   predictCompetitionLevel(property, score) {
-    let level = 3; // 기본 중간 수준
+    const compConfig = this.config.predictionConfig.competition_level;
+    let level = compConfig.base_level;
 
     // 점수가 높을수록 경쟁 치열
-    if (score.total >= 80) level = 5;
-    else if (score.total >= 65) level = 4;
-    else if (score.total >= 50) level = 3;
-    else if (score.total >= 35) level = 2;
-    else level = 1;
+    for (const threshold of compConfig.thresholds) {
+      if (score.total >= threshold.score_ge) {
+        level = threshold.level;
+        break;
+      }
+    }
 
     // 유찰 횟수가 많으면 경쟁 낮음
-    level = Math.max(1, level - property.failure_count);
+    level = Math.max(compConfig.min_level, level - (property.failure_count * compConfig.failure_penalty));
 
     return level;
   }
@@ -954,24 +927,16 @@ class AIInvestmentAnalyzer {
    * 가격 변동성 예측
    */
   predictPriceVolatility(property, score) {
-    let volatility = 5; // 기본 중간값
+    const volConfig = this.config.riskMaps;
+    let volatility = volConfig.volatility_base; // 기본 중간값
 
     // 물건 유형별 변동성
-    const typeVolatility = {
-      '아파트': 3,
-      '오피스텔': 5,
-      '상가': 7,
-      '토지': 8,
-      '빌라': 6,
-      '단독주택': 6
-    };
-
-    volatility = typeVolatility[property.property_type] || 5;
+    volatility = volConfig.type_volatility[property.property_type] || volConfig.volatility_base;
 
     // 유찰 횟수가 많으면 변동성 증가
-    volatility += property.failure_count * 0.5;
+    volatility += property.failure_count * volConfig.volatility_failure_multiplier;
 
-    return Math.min(10, Math.max(1, volatility));
+    return Math.min(volConfig.volatility_max, Math.max(volConfig.volatility_min, volatility));
   }
 
   generateFeatureSet(property) {
@@ -987,11 +952,13 @@ class AIInvestmentAnalyzer {
   }
 
   getPriceRange(price) {
-    if (price < 100000000) return '1억미만';
-    if (price < 300000000) return '1-3억';
-    if (price < 500000000) return '3-5억';
-    if (price < 1000000000) return '5-10억';
-    return '10억이상';
+    const priceRanges = this.config.priceRanges;
+    for (const range of priceRanges) {
+      if (price < range.threshold) {
+        return range.label;
+      }
+    }
+    return '기타'; // Fallback
   }
 
   /**
@@ -1028,23 +995,13 @@ class AIInvestmentAnalyzer {
    * 중간 가격대(3-5억)가 가장 유동성이 높음
    */
   getPriceLiquidityScore(price) {
-    // 1억 미만 - 낮은 가격대, 유동성 높음 (85점)
-    if (price < 100000000) return 85;
-
-    // 1-3억 - 가장 활발한 거래 구간 (95점)
-    if (price < 300000000) return 95;
-
-    // 3-5억 - 최고 유동성 구간 (100점)
-    if (price < 500000000) return 100;
-
-    // 5-10억 - 유동성 감소 시작 (75점)
-    if (price < 1000000000) return 75;
-
-    // 10-20억 - 유동성 낮음 (55점)
-    if (price < 2000000000) return 55;
-
-    // 20억 이상 - 매우 낮은 유동성 (35점)
-    return 35;
+    const liquidityPriceRanges = this.config.liquidityMaps.liquidity_price_ranges;
+    for (const range of liquidityPriceRanges) {
+      if (price < range.threshold) {
+        return range.score;
+      }
+    }
+    return 50; // Fallback to a default score if no range matches
   }
 }
 

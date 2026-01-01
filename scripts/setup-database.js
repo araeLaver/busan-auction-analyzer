@@ -1,69 +1,32 @@
-const pool = require('../config/database');
-const fs = require('fs');
+const { Pool } = require('pg');
+const migrate = require('node-pg-migrate').default;
 const path = require('path');
+const { dbConfig } = require('../config/database'); // dbConfig 가져오기
 
 async function setupDatabase() {
-  const client = await pool.connect();
+  const connectionString = `postgresql://${dbConfig.user}:${dbConfig.password}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`;
+
   try {
-    console.log('✅ 데이터베이스 연결 성공');
-
-    // 스키마 파일 읽기
-    const schemaPath = path.join(__dirname, '..', 'database', 'schema.sql');
-    const schemaSQL = fs.readFileSync(schemaPath, 'utf8');
-
-    console.log('스키마 생성 중...');
-    await client.query(schemaSQL);
-    console.log('✅ 스키마 생성 완료');
-
-    // 테이블 목록 확인
-    const result = await client.query(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'analyzer' 
-      AND table_type = 'BASE TABLE'
-      ORDER BY table_name;
-    `);
-
-    console.log('\n📋 생성된 테이블 목록:');
-    result.rows.forEach(row => {
-      console.log(`  - ${row.table_name}`);
+    console.log('🚀 마이그레이션 시작...');
+    await migrate({
+      databaseUrl: connectionString,
+      migrationsTable: 'pgmigrations', // 마이그레이션 기록을 저장할 테이블
+      dir: path.resolve(__dirname, '..', 'database', 'migrations'),
+      direction: 'up', // 'up' (새로운 마이그레이션 적용) 또는 'down' (롤백)
+      count: Infinity, // 모든 새로운 마이그레이션 적용
+      createMigrationsSchema: true, // 마이그레이션 스키마가 없으면 생성
+      createSchema: true, // 스키마가 없으면 생성
+      verbose: true,
+      logger: console // 로깅을 위해 console 객체 사용
     });
-
-    // 뷰 목록 확인
-    const viewResult = await client.query(`
-      SELECT table_name 
-      FROM information_schema.views 
-      WHERE table_schema = 'analyzer'
-      ORDER BY table_name;
-    `);
-
-    if (viewResult.rows.length > 0) {
-      console.log('\n🔍 생성된 뷰 목록:');
-      viewResult.rows.forEach(row => {
-        console.log(`  - ${row.table_name}`);
-      });
-    }
-
-    // 각 테이블의 컬럼 수 확인
-    console.log('\n📊 테이블별 컬럼 수:');
-    for (const table of result.rows) {
-      const columnResult = await client.query(`
-        SELECT COUNT(*) as column_count 
-        FROM information_schema.columns 
-        WHERE table_schema = 'analyzer' 
-        AND table_name = $1;
-      `, [table.table_name]);
-      
-      console.log(`  - ${table.table_name}: ${columnResult.rows[0].column_count}개 컬럼`);
-    }
-
+    console.log('✅ 데이터베이스 마이그레이션 완료');
   } catch (error) {
-    console.error('❌ 오류 발생:', error);
+    console.error('❌ 데이터베이스 마이그레이션 중 오류 발생:', error);
     process.exit(1);
   } finally {
-    client.release();
-    console.log('\n✅ 데이터베이스 설정 완료');
-    await pool.end(); // 스크립트 종료 시 풀 전체 종료
+    console.log('\n✅ 데이터베이스 설정 스크립트 종료');
+    // migrate 함수 내부에서 Pool을 생성하고 관리하므로, 여기서는 별도로 pool.end()를 호출하지 않음
+    // 필요한 경우, 마이그레이션 후 직접 연결을 닫을 수 있음 (migrate 함수가 내부적으로 관리)
   }
 }
 

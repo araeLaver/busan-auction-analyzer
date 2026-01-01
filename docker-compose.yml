@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: ${PG_DATABASE:-postgres}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-Unbleyum1106!}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d # 마이그레이션 스크립트를 초기화 시 실행 (선택사항, node-pg-migrate가 더 적합)
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      PG_HOST: db
+      PG_DATABASE: ${PG_DATABASE:-postgres}
+      PG_USER: ${PG_USER:-postgres}
+      PG_PASSWORD: ${PG_PASSWORD:-Unbleyum1106!}
+      PG_PORT: 5432
+      ONBID_API_KEY: ${ONBID_API_KEY} # 온비드 API 키는 .env 파일에서 로드
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules # 호스트의 node_modules와 연결 방지
+
+volumes:
+  postgres_data:

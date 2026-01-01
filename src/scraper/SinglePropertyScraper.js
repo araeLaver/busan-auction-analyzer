@@ -7,7 +7,7 @@ class SinglePropertyScraper {
     this.page = null;
   }
 
-  async initialize(headless = false) {
+  async initialize(headless = true) {
     this.browser = await puppeteer.launch({
       headless: headless,
       slowMo: 300,

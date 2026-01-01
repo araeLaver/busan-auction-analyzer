@@ -1,6 +1,9 @@
 const axios = require('axios');
 const tough = require('tough-cookie');
 const cheerio = require('cheerio');
+const puppeteer = require('puppeteer'); // puppeteer 추가
+require('dotenv').config(); // Load environment variables
+const pool = require('../../config/database'); // Database connection pool
 
 /**
  * 패킷 분석으로 발견한 실제 법원경매정보 API 사용
@@ -8,7 +11,9 @@ const cheerio = require('cheerio');
 class RealApiScraper {
     constructor() {
         this.baseUrl = 'https://www.courtauction.go.kr';
-        this.cookieJar = new tough.CookieJar();
+        this.cookieJar = new tough.CookieJar(); // axios-cookiejar-support와 함께 사용될 수 있지만, 여기서는 수동 관리
+        this.sessionCookies = ''; // 세션 쿠키를 저장할 변수
+        this.sessionStart = Date.now(); // 스크래핑 시간 기록
         this.sessionHeaders = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/javascript, */*; q=0.01',
@@ -20,6 +25,51 @@ class RealApiScraper {
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"macOS"'
         };
+    }
+
+    /**
+     * Puppeteer를 사용하여 초기 세션 쿠키를 가져옵니다.
+     * 이를 통해 웹사이트의 CSRF 토큰이나 세션 관련 쿠키를 획득하여
+     * 이후 axios 요청에 사용할 수 있게 합니다.
+     */
+    async initSession() {
+        let browser;
+        try {
+            console.log('🚀 초기 세션 쿠키 획득을 위해 브라우저 시작...');
+            browser = await puppeteer.launch({
+                headless: true, // 백그라운드에서 실행
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                    '--disable-web-security'
+                ]
+            });
+            const page = await browser.newPage();
+            
+            // 고급 탐지 방지 스크립트 적용 (AdvancedCourtAuctionScraper.js에서 가져온 헬퍼 필요)
+            // 여기서는 간단하게 User-Agent만 설정
+            await page.setUserAgent(this.sessionHeaders['User-Agent']);
+
+            await page.goto(this.baseUrl, { waitUntil: 'networkidle0', timeout: 30000 });
+
+            // 쿠키 획득
+            const cookies = await page.cookies();
+            this.sessionCookies = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+            console.log(`✅ 세션 쿠키 획득 완료: ${this.sessionCookies.substring(0, 100)}...`);
+
+        } catch (error) {
+            console.error('❌ 초기 세션 쿠키 획득 실패:', error.message);
+            // 오류 발생 시 재시도 로직 또는 경고 처리
+        } finally {
+            if (browser) {
+                await browser.close();
+                console.log('🔒 브라우저 종료');
+            }
+        }
     }
 
     /**
@@ -100,6 +150,9 @@ class RealApiScraper {
      * 실제 경매 물건 검색 - 패킷 분석으로 발견한 실제 API 사용
      */
     async searchProperties(searchParams = {}) {
+        const logId = await this.logScrapingStart('courtauction_api');
+        const stats = { totalFound: 0, newItems: 0, updatedItems: 0, errorCount: 0 };
+
         try {
             console.log('🔍 실제 경매 물건 검색 중...');
             
@@ -149,7 +202,7 @@ class RealApiScraper {
                 {
                     headers: {
                         ...this.sessionHeaders,
-                        'Cookie': 'WMONID=jCYXiWgaQNV; SID=; cortAuctnLgnMbr=; JSESSIONID=Gafzep6hQYvWJskN254oLUEAM8xaZNX7C91XgJaTz7U7-00p_ZFG!137493535'
+                        'Cookie': this.sessionCookies // 동적으로 획득한 세션 쿠키 사용
                     },
                     timeout: 15000
                 }
@@ -157,24 +210,42 @@ class RealApiScraper {
             
             console.log(`✅ 경매물건 검색 응답: ${response.status}`);
             
+            let properties = [];
             if (response.data) {
                 // JSON 응답인 경우
                 if (response.data.status === 200 && response.data.data) {
                     console.log('🎉 JSON 형태 실제 경매 물건 데이터 발견!');
-                    return this.parseRealPropertyResponse(response.data);
+                    properties = this.parseRealPropertyResponse(response.data);
                 }
                 // HTML 응답인 경우 (검색 결과 페이지)
                 else if (typeof response.data === 'string' && response.data.includes('<')) {
                     console.log('🎉 HTML 형태 실제 경매 물건 데이터 발견!');
-                    return this.parseRealHTMLResponse(response.data);
+                    properties = this.parseRealHTMLResponse(response.data);
                 }
             }
-            
-            console.log('⚠️ 경매 물건 데이터가 비어있거나 올바르지 않은 형식입니다.');
-            return [];
+            stats.totalFound = properties.length;
+
+            // 각 물건을 데이터베이스에 저장
+            for (const property of properties) {
+                try {
+                    const saved = await this.saveProperty(property);
+                    if (saved.isNew) {
+                        stats.newItems++;
+                    } else {
+                        stats.updatedItems++;
+                    }
+                } catch (saveError) {
+                    stats.errorCount++;
+                    console.error(`❌ 물건 저장 오류 (${property.case_number}):`, saveError.message);
+                }
+            }
+            await this.logScrapingEnd(logId, stats);
+            console.log(`✅ Real API 스크래핑 완료: 신규 ${stats.newItems}개, 업데이트 ${stats.updatedItems}개, 오류 ${stats.errorCount}개`);
+            return properties;
             
         } catch (error) {
             console.error('❌ 실제 경매 물건 검색 실패:', error.message);
+            await this.logScrapingEnd(logId, stats, error);
             return [];
         }
     }
@@ -363,6 +434,7 @@ class RealApiScraper {
                 for (const item of items) {
                     const property = {
                         case_number: item.caseNo || item.saYear + item.saNo || `REAL-${Date.now()}-${Math.random()}`,
+                        item_number: item.cltrMngNo?.[0] || '1', // API 응답에서 물건번호 추출, 없으면 '1'로 기본값
                         court_name: this.extractCourtName(item.cortOfcNm || item.cortNm || ''),
                         property_type: this.parsePropertyType(item.mulNm || item.mulClsfc || ''),
                         address: item.toAddr || item.addr || item.rdnmAddr || '',
@@ -442,6 +514,7 @@ class RealApiScraper {
                                 
                                 const property = {
                                     case_number: this.extractCaseNumber(caseInfo) || `REAL-HTML-${Date.now()}-${index}`,
+                                    item_number: '1', // HTML 파싱에서 물건번호를 명확히 식별하기 어려워 기본값 '1'로 설정
                                     court_name: this.extractCourtName(courtInfo),
                                     property_type: this.parsePropertyType(propertyInfo),
                                     address: this.cleanAddress(addressInfo),
@@ -597,6 +670,150 @@ class RealApiScraper {
         const future = new Date();
         future.setDate(future.getDate() + 30);
         return future.toISOString().split('T')[0];
+    }
+
+    /**
+     * 스크래핑 로그 시작
+     */
+    async logScrapingStart(sourceSite) {
+        const query = `
+            INSERT INTO scraping_logs (source_site, status) 
+            VALUES ($1, 'running') 
+            RETURNING id
+        `;
+        const result = await pool.query(query, [sourceSite]);
+        return result.rows[0].id;
+    }
+
+    /**
+     * 스크래핑 로그 종료
+     */
+    async logScrapingEnd(logId, stats, error = null) {
+        const executionTime = Math.floor((Date.now() - this.sessionStart) / 1000);
+        
+        const query = `
+            UPDATE scraping_logs 
+            SET status = $2, 
+                total_found = $3, 
+                new_items = $4, 
+                updated_items = $5,
+                error_count = $6,
+                error_message = $7,
+                execution_time = $8
+            WHERE id = $1
+        `;
+        
+        await pool.query(query, [
+            logId, 
+            error ? 'failed' : 'completed', 
+            stats.totalFound, 
+            stats.newItems, 
+            stats.updatedItems,
+            error ? stats.errorCount || 1 : 0,
+            error ? error.message : null,
+            executionTime
+        ]);
+    }
+
+    /**
+     * 물건 저장 (데이터베이스 연동)
+     * @param {object} property - 저장할 물건 데이터
+     */
+    async saveProperty(property) {
+        const client = await pool.connect();
+        let isNew = false;
+        
+        try {
+            await client.query('BEGIN');
+            
+            // 법원 ID 조회 (court_name을 기반으로)
+            let courtId = null;
+            if (property.court_name) {
+                const courtResult = await client.query(
+                    'SELECT id FROM analyzer.courts WHERE name LIKE $1', // analyzer 스키마 명시
+                    [`%${property.court_name.replace('지방법원', '')}%`]
+                );
+                courtId = courtResult.rows[0]?.id || null;
+            }
+
+            const itemNumber = property.item_number || '1'; // item_number를 property에서 가져오거나 기본값 '1' 설정
+            
+            // 기존 데이터 확인: case_number, item_number, source_site를 유니크 키로 사용
+            const existingResult = await client.query(
+                'SELECT id FROM analyzer.properties WHERE case_number = $1 AND item_number = $2 AND source_site = $3', // analyzer 스키마 명시
+                [property.case_number, itemNumber, property.source_url]
+            );
+            
+            if (existingResult.rows.length > 0) {
+                // 업데이트
+                const updateQuery = `
+                    UPDATE analyzer.properties SET 
+                        address = $1,
+                        property_type = $2,
+                        building_name = $3,
+                        appraisal_value = $4,
+                        minimum_sale_price = $5,
+                        auction_date = $6,
+                        current_status = $7,
+                        last_scraped_at = NOW(),
+                        updated_at = NOW(),
+                        details = $8
+                    WHERE case_number = $9 AND item_number = $10 AND source_site = $11
+                `;
+                
+                await client.query(updateQuery, [
+                    property.address,
+                    property.property_type,
+                    property.building_name,
+                    property.appraisal_value,
+                    property.minimum_sale_price,
+                    property.auction_date,
+                    property.current_status,
+                    property.details, // details 필드 업데이트
+                    property.case_number,
+                    itemNumber,
+                    property.source_url
+                ]);
+                
+            } else {
+                // 신규 삽입
+                const insertQuery = `
+                    INSERT INTO analyzer.properties (
+                        case_number, item_number, court_id, address, property_type, building_name,
+                        appraisal_value, minimum_sale_price, auction_date,
+                        current_status, source_site, source_url, last_scraped_at, details
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12)
+                `;
+                
+                await client.query(insertQuery, [
+                    property.case_number,
+                    itemNumber,
+                    courtId,
+                    property.address,
+                    property.property_type,
+                    property.building_name,
+                    property.appraisal_value,
+                    property.minimum_sale_price,
+                    property.auction_date,
+                    property.current_status,
+                    property.source_url,
+                    property.source_url,
+                    property.details // details 필드 저장
+                ]);
+                
+                isNew = true;
+            }
+            
+            await client.query('COMMIT');
+            
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+        
+        return { isNew };
     }
 }
 

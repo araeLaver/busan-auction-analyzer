@@ -1,15 +1,16 @@
 const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
+const pool = require('../../config/database'); // Database connection pool
 
 class CourtAuctionDeepScraper {
   constructor() {
     this.browser = null;
     this.page = null;
     this.baseUrl = 'https://www.courtauction.go.kr/pgj/index.on?w2xPath=/pgj/ui/pgj100/PGJ153F00.xml';
-    this.allProperties = [];
+    this.sessionStart = Date.now(); // 스크래핑 시작 시간 기록
   }
 
-  async initialize(headless = false) {
+  async initialize(headless = true) {
     this.browser = await puppeteer.launch({
       headless: headless,
       slowMo: 300,
@@ -40,6 +41,9 @@ class CourtAuctionDeepScraper {
   }
 
   async scrapeSeoulCourt(targetDate = null) {
+    const logId = await this.logScrapingStart('courtauction_deep_seoul');
+    const stats = { totalFound: 0, newItems: 0, updatedItems: 0, errorCount: 0 };
+
     try {
       console.log('📅 기일별 검색 페이지 접속...');
       
@@ -60,21 +64,27 @@ class CourtAuctionDeepScraper {
       
       // 3단계: 매각기일 목록 수집
       const auctionSchedules = await this.collectAuctionSchedules();
-      
+      stats.totalFound = auctionSchedules.length; // 총 스케줄 수로 초기화
+
       console.log(`📋 총 ${auctionSchedules.length}개 매각기일 발견`);
       
-      // 4단계: 각 담당계별로 상세 페이지 진입
+      // 4단계: 각 담당계별로 상세 페이지 진입 및 데이터베이스 저장
       for (const schedule of auctionSchedules) {
         console.log(`\n🔍 담당계 진입: ${schedule.court} - ${schedule.department} (${schedule.date})`);
-        await this.scrapeDetailsByDepartment(schedule);
+        const result = await this.scrapeDetailsByDepartment(schedule);
+        stats.newItems += result.newItems;
+        stats.updatedItems += result.updatedItems;
+        stats.errorCount += result.errorCount;
       }
       
-      console.log(`\n✅ 총 ${this.allProperties.length}개 물건 수집 완료`);
-      return this.allProperties;
+      await this.logScrapingEnd(logId, stats);
+      console.log(`\n✅ 스크래핑 완료: 신규 ${stats.newItems}개, 업데이트 ${stats.updatedItems}개, 오류 ${stats.errorCount}개`);
+      return stats;
       
     } catch (error) {
       console.error('❌ 스크래핑 오류:', error);
       await this.page.screenshot({ path: 'seoul-court-error.png', fullPage: true });
+      await this.logScrapingEnd(logId, stats, error); // 오류 발생 시 로그
       throw error;
     }
   }
@@ -326,6 +336,7 @@ class CourtAuctionDeepScraper {
   async scrapeDetailsByDepartment(schedule) {
     console.log(`📂 ${schedule.department} 상세 페이지 진입 시도...`);
     
+    const stats = { newItems: 0, updatedItems: 0, errorCount: 0 }; // Initialize stats for this department
     try {
       // 링크가 있으면 클릭
       if (schedule.link) {
@@ -353,12 +364,13 @@ class CourtAuctionDeepScraper {
         await this.page.waitForTimeout(3000);
         
         // 상세 물건 목록 추출
-        const properties = await this.extractDetailProperties(schedule);
+        const departmentStats = await this.extractDetailProperties(schedule);
         
-        console.log(`✅ ${schedule.department}: ${properties.length}개 물건 추출`);
+        stats.newItems = departmentStats.newItems;
+        stats.updatedItems = departmentStats.updatedItems;
+        stats.errorCount = departmentStats.errorCount;
         
-        // 전체 목록에 추가
-        this.allProperties.push(...properties);
+        console.log(`✅ ${schedule.department}: 신규 ${stats.newItems}개, 업데이트 ${stats.updatedItems}개, 오류 ${stats.errorCount}개 물건 처리`);
         
         // 목록 페이지로 돌아가기
         await this.page.goBack();
@@ -370,13 +382,15 @@ class CourtAuctionDeepScraper {
       
     } catch (error) {
       console.error(`${schedule.department} 상세 페이지 오류:`, error);
+      stats.errorCount++; // 부서 처리 중 오류 발생
     }
+    return stats; // Return stats for this department
   }
 
   async extractDetailProperties(schedule) {
     console.log('🏠 물건 상세 정보 추출 중...');
     
-    const properties = [];
+    const stats = { newItems: 0, updatedItems: 0, errorCount: 0 };
     
     try {
       // 상세 페이지의 물건 목록 테이블 찾기
@@ -412,201 +426,143 @@ class CourtAuctionDeepScraper {
       
       console.log(`📋 ${propertyData.length}개 물건 행 발견`);
       
-      // 각 물건 정보 파싱
-      propertyData.forEach((item, index) => {
-        const property = {
-          // 기본 정보
-          court: schedule.court,
-          department: schedule.department,
-          auctionDate: schedule.date,
-          auctionTime: schedule.time,
-          courtRoom: schedule.room,
+      // 각 물건 정보 파싱 및 저장
+      for (const item of propertyData) {
+        try {
+          const property = {
+            // 기본 정보
+            court: schedule.court,
+            department: schedule.department,
+            auctionDate: schedule.date,
+            auctionTime: schedule.time,
+            courtRoom: schedule.room,
+            
+            // 물건 정보 (파싱된 셀에서 추출)
+            caseNumber: '',
+            itemNumber: '',
+            address: '',
+            propertyType: '',
+            buildingName: '',
+            area: '',
+            
+            // 가격 정보
+            appraisalValue: null,
+            minimumSalePrice: null,
+            bidDeposit: null,
+            
+            // 추가 정보
+            tenantStatus: '',
+            landCategory: '',
+            failureCount: 0,
+            note: '',
+            
+            // 메타 정보
+            sourceSite: 'courtauction_deep',
+            sourceUrl: this.page.url(),
+            scrapedAt: new Date().toISOString()
+          };
           
-          // 물건 정보
-          caseNumber: '',
-          itemNumber: '',
-          address: '',
-          propertyType: '',
-          buildingName: '',
-          area: '',
-          
-          // 가격 정보
-          appraisalValue: null,
-          minimumSalePrice: null,
-          bidDeposit: null,
-          
-          // 추가 정보
-          tenantStatus: '',
-          landCategory: '',
-          failureCount: 0,
-          note: '',
-          
-          // 메타 정보
-          sourceSite: 'courtauction',
-          sourceUrl: this.page.url(),
-          scrapedAt: new Date().toISOString()
-        };
-        
-        // 각 셀에서 정보 추출
-        item.cells.forEach((cell, cellIndex) => {
-          // 사건번호
-          const caseMatch = cell.match(/(\d{4}타경\d+)/);
-          if (caseMatch) {
-            property.caseNumber = caseMatch[1];
-          }
-          
-          // 물건번호
-          const itemMatch = cell.match(/물건\s*(\d+)/);
-          if (itemMatch) {
-            property.itemNumber = itemMatch[1];
-          }
-          
-          // 주소 (서울특별시로 시작하는 긴 텍스트)
-          if (cell.includes('서울특별시') && cell.length > 15) {
-            property.address = cell;
-          }
-          
-          // 물건 유형
-          const types = ['아파트', '오피스텔', '단독주택', '다세대', '상가', '사무실', '토지'];
-          types.forEach(type => {
-            if (cell.includes(type)) {
-              property.propertyType = type;
+          // 각 셀에서 정보 추출
+          item.cells.forEach((cell, cellIndex) => {
+            // 사건번호
+            const caseMatch = cell.match(/(\d{4}타경\d+)/);
+            if (caseMatch) {
+              property.caseNumber = caseMatch[1];
+            }
+            
+            // 물건번호
+            const itemMatch = cell.match(/물건\s*(\d+)/);
+            if (itemMatch) {
+              property.itemNumber = itemMatch[1];
+            }
+            
+            // 주소 (서울특별시로 시작하는 긴 텍스트)
+            if (cell.includes('서울특별시') && cell.length > 15) {
+              property.address = cell;
+            }
+            
+            // 물건 유형
+            const types = ['아파트', '오피스텔', '단독주택', '다세대', '상가', '사무실', '토지'];
+            types.forEach(type => {
+              if (cell.includes(type)) {
+                property.propertyType = type;
+              }
+            });
+            
+            // 건물명
+            if (cell.includes('아파트') || cell.includes('빌딩') || cell.includes('타워')) {
+              property.buildingName = cell;
+            }
+            
+            // 면적 (㎡ 단위)
+            const areaMatch = cell.match(/([\d.]+)\s*㎡/);
+            if (areaMatch) {
+              property.area = areaMatch[1] + '㎡';
+            }
+            
+            // 감정가
+            if (cell.includes('감정가') || cellIndex === 5) {
+              const priceMatch = cell.match(/[\d,]+/);
+              if (priceMatch) {
+                property.appraisalValue = parseInt(priceMatch[0].replace(/,/g, ''));
+              }
+            }
+            
+            // 최저매각가
+            if (cell.includes('최저') || cellIndex === 6) {
+              const priceMatch = cell.match(/[\d,]+/);
+              if (priceMatch) {
+                property.minimumSalePrice = parseInt(priceMatch[0].replace(/,/g, ''));
+              }
+            }
+            
+            // 입찰보증금
+            if (cell.includes('보증금') || cellIndex === 7) {
+              const priceMatch = cell.match(/[\d,]+/);
+              if (priceMatch) {
+                property.bidDeposit = parseInt(priceMatch[0].replace(/,/g, ''));
+              }
+            }
+            
+            // 임차인 현황
+            if (cell.includes('임차인')) {
+              property.tenantStatus = cell;
+            }
+            
+            // 유찰 횟수
+            const failureMatch = cell.match(/(\d+)회\s*유찰/);
+            if (failureMatch) {
+              property.failureCount = parseInt(failureMatch[1]);
+            }
+            
+            // 비고
+            if (cellIndex === item.cells.length - 1 && cell.length > 0) {
+              property.note = cell;
             }
           });
           
-          // 건물명
-          if (cell.includes('아파트') || cell.includes('빌딩') || cell.includes('타워')) {
-            property.buildingName = cell;
-          }
-          
-          // 면적 (㎡ 단위)
-          const areaMatch = cell.match(/([\d.]+)\s*㎡/);
-          if (areaMatch) {
-            property.area = areaMatch[1] + '㎡';
-          }
-          
-          // 감정가
-          if (cell.includes('감정가') || cellIndex === 5) {
-            const priceMatch = cell.match(/[\d,]+/);
-            if (priceMatch) {
-              property.appraisalValue = parseInt(priceMatch[0].replace(/,/g, ''));
+          // 유효한 물건만 저장
+          if (property.caseNumber) {
+            const saved = await this.saveProperty(property);
+            if (saved.isNew) {
+              stats.newItems++;
+            } else {
+              stats.updatedItems++;
             }
+            console.log(`  📍 ${property.caseNumber} - ${property.address || '주소미상'} (DB ${saved.isNew ? '신규' : '업데이트'})`);
           }
-          
-          // 최저매각가
-          if (cell.includes('최저') || cellIndex === 6) {
-            const priceMatch = cell.match(/[\d,]+/);
-            if (priceMatch) {
-              property.minimumSalePrice = parseInt(priceMatch[0].replace(/,/g, ''));
-            }
-          }
-          
-          // 입찰보증금
-          if (cell.includes('보증금') || cellIndex === 7) {
-            const priceMatch = cell.match(/[\d,]+/);
-            if (priceMatch) {
-              property.bidDeposit = parseInt(priceMatch[0].replace(/,/g, ''));
-            }
-          }
-          
-          // 임차인 현황
-          if (cell.includes('임차인')) {
-            property.tenantStatus = cell;
-          }
-          
-          // 유찰 횟수
-          const failureMatch = cell.match(/(\d+)회\s*유찰/);
-          if (failureMatch) {
-            property.failureCount = parseInt(failureMatch[1]);
-          }
-          
-          // 비고
-          if (cellIndex === item.cells.length - 1 && cell.length > 0) {
-            property.note = cell;
-          }
-        });
-        
-        // 유효한 물건만 추가
-        if (property.caseNumber) {
-          properties.push(property);
-          
-          console.log(`  📍 ${index + 1}. ${property.caseNumber} - ${property.address || '주소미상'}`);
-          if (property.minimumSalePrice) {
-            console.log(`     💰 최저가: ${property.minimumSalePrice.toLocaleString()}원`);
-          }
+        } catch (error) {
+          stats.errorCount++;
+          console.error(`❌ 물건 파싱 및 저장 오류:`, error.message);
         }
-      });
+      }
       
     } catch (error) {
       console.error('물건 상세 정보 추출 오류:', error);
+      stats.errorCount++; // 전체 오류 카운트 증가
     }
     
-    return properties;
-  }
-
-  async saveToJSON(filename = 'seoul-court-properties.json') {
-    const fs = require('fs').promises;
-    
-    try {
-      const data = {
-        scrapedAt: new Date().toISOString(),
-        totalCount: this.allProperties.length,
-        properties: this.allProperties
-      };
-      
-      await fs.writeFile(filename, JSON.stringify(data, null, 2), 'utf8');
-      console.log(`✅ ${filename} 파일로 저장 완료`);
-      
-    } catch (error) {
-      console.error('JSON 저장 오류:', error);
-    }
-  }
-
-  async saveToCSV(filename = 'seoul-court-properties.csv') {
-    const fs = require('fs').promises;
-    
-    try {
-      // CSV 헤더
-      const headers = [
-        '법원', '담당계', '매각기일', '매각시간', '법정',
-        '사건번호', '물건번호', '주소', '물건유형', '건물명',
-        '면적', '감정가', '최저매각가', '입찰보증금',
-        '임차인현황', '유찰횟수', '비고'
-      ];
-      
-      let csv = headers.join(',') + '\n';
-      
-      // 데이터 행 추가
-      this.allProperties.forEach(property => {
-        const row = [
-          property.court,
-          property.department,
-          property.auctionDate,
-          property.auctionTime,
-          property.courtRoom,
-          property.caseNumber,
-          property.itemNumber,
-          `"${property.address}"`,
-          property.propertyType,
-          `"${property.buildingName}"`,
-          property.area,
-          property.appraisalValue || '',
-          property.minimumSalePrice || '',
-          property.bidDeposit || '',
-          `"${property.tenantStatus}"`,
-          property.failureCount,
-          `"${property.note}"`
-        ];
-        
-        csv += row.join(',') + '\n';
-      });
-      
-      await fs.writeFile(filename, csv, 'utf8');
-      console.log(`✅ ${filename} 파일로 저장 완료`);
-      
-    } catch (error) {
-      console.error('CSV 저장 오류:', error);
-    }
+    return stats;
   }
 
   async close() {
@@ -614,6 +570,171 @@ class CourtAuctionDeepScraper {
       await this.browser.close();
       console.log('🔒 브라우저 종료');
     }
+  }
+
+  /**
+   * 스크래핑 로그 시작
+   */
+  async logScrapingStart(sourceSite) {
+    const query = `
+      INSERT INTO scraping_logs (source_site, status) 
+      VALUES ($1, 'running') 
+      RETURNING id
+    `;
+    const result = await pool.query(query, [sourceSite]);
+    return result.rows[0].id;
+  }
+
+  /**
+   * 스크래핑 로그 종료
+   */
+  async logScrapingEnd(logId, stats, error = null) {
+    const executionTime = Math.floor((Date.now() - this.sessionStart) / 1000);
+    
+    const query = `
+      UPDATE scraping_logs 
+      SET status = $2, 
+          total_found = $3, 
+          new_items = $4, 
+          updated_items = $5,
+          error_count = $6,
+          error_message = $7,
+          execution_time = $8
+      WHERE id = $1
+    `;
+    
+    await pool.query(query, [
+      logId, 
+      error ? 'failed' : 'completed', 
+      stats.totalFound, 
+      stats.newItems, 
+      stats.updatedItems,
+      error ? stats.errorCount || 1 : 0,
+      error ? error.message : null,
+      executionTime
+    ]);
+  }
+
+  /**
+   * 물건 저장 (데이터베이스 연동)
+   * @param {object} property - 저장할 물건 데이터
+   */
+  async saveProperty(property) {
+    const client = await pool.connect();
+    let isNew = false;
+    
+    try {
+      await client.query('BEGIN');
+      
+      // 법원 ID 조회
+      let courtId = null;
+      if (property.court) {
+        const courtResult = await client.query(
+          'SELECT id FROM analyzer.courts WHERE name LIKE $1',
+          [`%${property.court.replace('지방법원', '')}%`]
+        );
+        courtId = courtResult.rows[0]?.id || null;
+      }
+
+      // 기존 데이터 확인
+      const existingResult = await client.query(
+        'SELECT id FROM analyzer.properties WHERE case_number = $1 AND item_number = $2 AND source_site = $3',
+        [property.caseNumber, property.itemNumber, property.sourceSite]
+      );
+      
+      if (existingResult.rows.length > 0) {
+        // 업데이트
+        const updateQuery = `
+          UPDATE analyzer.properties SET 
+            address = $1,
+            property_type = $2,
+            building_name = $3,
+            appraisal_value = $4,
+            minimum_sale_price = $5,
+            auction_date = $6,
+            auction_time = $7,
+            failure_count = $8,
+            building_area = $9,
+            land_area = $10,
+            tenant_status = $11,
+            special_notes = $12,
+            current_status = $13,
+            last_scraped_at = NOW(),
+            updated_at = NOW(),
+            court_room = $14,
+            department = $15
+          WHERE case_number = $16 AND item_number = $17 AND source_site = $18
+        `;
+        
+        await client.query(updateQuery, [
+          property.address,
+          property.propertyType,
+          property.buildingName,
+          property.appraisalValue,
+          property.minimumSalePrice,
+          property.auctionDate,
+          property.auctionTime,
+          property.failureCount,
+          property.area, // building_area로 사용
+          null, // land_area는 명확치 않음
+          property.tenantStatus,
+          property.note, // special_notes로 사용
+          'active', // current_status
+          property.courtRoom,
+          property.department,
+          property.caseNumber,
+          property.itemNumber,
+          property.sourceSite
+        ]);
+        
+      } else {
+        // 신규 삽입
+        const insertQuery = `
+          INSERT INTO analyzer.properties (
+            case_number, item_number, court_id, address, property_type,
+            building_name, appraisal_value, minimum_sale_price, 
+            auction_date, auction_time, failure_count, building_area,
+            land_area, tenant_status, special_notes, current_status,
+            source_site, source_url, last_scraped_at, court_room, department
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), $19, $20)
+        `;
+        
+        await client.query(insertQuery, [
+          property.caseNumber,
+          property.itemNumber,
+          courtId,
+          property.address,
+          property.propertyType,
+          property.buildingName,
+          property.appraisalValue,
+          property.minimumSalePrice,
+          property.auctionDate,
+          property.auctionTime,
+          property.failureCount,
+          property.area, // building_area로 사용
+          null, // land_area는 명확치 않음
+          property.tenantStatus,
+          property.note, // special_notes로 사용
+          'active', // current_status
+          property.sourceSite,
+          property.sourceUrl,
+          property.courtRoom,
+          property.department
+        ]);
+        
+        isNew = true;
+      }
+      
+      await client.query('COMMIT');
+      
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+    
+    return { isNew };
   }
 }
 

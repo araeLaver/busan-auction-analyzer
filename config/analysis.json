@@ -1,0 +1,151 @@
+{
+  "weights": {
+    "profitability": 0.40,
+    "risk": 0.30,
+    "liquidity": 0.30
+  },
+  "busanRegionScores": {
+    "해운대구": { "location": 95, "development": 90, "liquidity": 95 },
+    "서면": { "location": 90, "development": 85, "liquidity": 90 },
+    "센텀시티": { "location": 95, "development": 95, "liquidity": 85 },
+    "광안리": { "location": 85, "development": 80, "liquidity": 80 },
+    "남포동": { "location": 70, "development": 60, "liquidity": 75 },
+    "사상구": { "location": 60, "development": 70, "liquidity": 65 },
+    "강서구": { "location": 55, "development": 75, "liquidity": 60 },
+    "금정구": { "location": 65, "development": 70, "liquidity": 60 },
+    "북구": { "location": 60, "development": 65, "liquidity": 55 },
+    "사하구": { "location": 50, "development": 60, "liquidity": 50 },
+    "동구": { "location": 55, "development": 50, "liquidity": 55 },
+    "중구": { "location": 65, "development": 60, "liquidity": 70 },
+    "영도구": { "location": 60, "development": 65, "liquidity": 60 },
+    "부산진구": { "location": 75, "development": 80, "liquidity": 80 },
+    "동래구": { "location": 80, "development": 75, "liquidity": 75 },
+    "연제구": { "location": 85, "development": 80, "liquidity": 80 }
+  },
+  "propertyTypeScores": {
+    "아파트": { "liquidity": 90, "stability": 85, "growth": 80 },
+    "오피스텔": { "liquidity": 75, "stability": 70, "growth": 75 },
+    "빌라": { "liquidity": 60, "stability": 65, "growth": 60 },
+    "단독주택": { "liquidity": 55, "stability": 70, "growth": 65 },
+    "연립주택": { "liquidity": 50, "stability": 60, "growth": 55 },
+    "상가": { "liquidity": 40, "stability": 50, "growth": 85 },
+    "토지": { "liquidity": 30, "stability": 60, "growth": 90 },
+    "공장": { "liquidity": 25, "stability": 40, "growth": 70 },
+    "창고": { "liquidity": 20, "stability": 45, "growth": 60 }
+  },
+  "riskMaps": {
+    "failure": {
+      "base": 0,
+      "per_count": 10,
+      "max": 30
+    },
+    "type": {
+      "아파트": 10, "오피스텔": 15, "빌라": 25, "단독주택": 20,
+      "연립주택": 30, "상가": 35, "토지": 40, "공장": 45, "창고": 50
+    },
+    "price_range": {
+      "lt_100M": 25, "lt_300M": 15, "lt_500M": 10, "lt_1B": 5, "gt_1B": 15
+    },
+    "time": {
+      "lt_7days": 15, "lt_14days": 10, "lt_30days": 5, "gt_30days": 0
+    },
+    "location_stability": {
+      "score_90_up": 0, "score_80_up": 3, "score_70_up": 5, "score_60_up": 8,
+      "score_50_up": 10, "score_50_down": 15
+    },
+    "tenant": {
+      "exists": 25, "none": 0
+    },
+    "special_notes": {
+      "keywords": ["전세", "임대", "점유", "소송", "가압류", "압류", "선순위"],
+      "per_keyword": 10
+    },
+    "failure_complexity_multiplier": 5,
+    "failure_complexity_max": 20,
+    "type_volatility": {
+      "아파트": 3,
+      "오피스텔": 5,
+      "상가": 7,
+      "토지": 8,
+      "빌라": 6,
+      "단독주택": 6
+    },
+    "volatility_failure_multiplier": 0.5,
+    "volatility_min": 1,
+    "volatility_max": 10,
+    "volatility_base": 5
+  },
+  "priceRanges": [
+    {"threshold": 100000000, "label": "1억미만"},
+    {"threshold": 300000000, "label": "1-3억"},
+    {"threshold": 500000000, "label": "3-5억"},
+    {"threshold": 1000000000, "label": "5-10억"},
+    {"threshold": 2000000000, "label": "10-20억"},
+    {"threshold": Infinity, "label": "20억이상"}
+  ],
+  "liquidityMaps": {
+    "type": {
+      "아파트": 0.4, "오피스텔": 0.4, "빌라": 0.4, "단독주택": 0.4, "연립주택": 0.4,
+      "상가": 0.4, "토지": 0.4, "공장": 0.4, "창고": 0.4
+    },
+    "region": {
+      "해운대구": 0.35, "서면": 0.35, "센텀시티": 0.35, "광안리": 0.35, "남포동": 0.35,
+      "사상구": 0.35, "강서구": 0.35, "금정구": 0.35, "북구": 0.35, "사하구": 0.35,
+      "동구": 0.35, "중구": 0.35, "영도구": 0.35, "부산진구": 0.35, "동래구": 0.35,
+      "연제구": 0.35
+    },
+    "price_range": {
+      "lt_100M": 85, "lt_300M": 95, "lt_500M": 100, "lt_1B": 75, "lt_2B": 55, "gt_2B": 35
+    },
+    "transaction_volume": {
+      "per_unit": 5,
+      "max_bonus": 100
+    },
+    "liquidity_price_ranges": [
+      {"threshold": 100000000, "score": 85},
+      {"threshold": 300000000, "score": 95},
+      {"threshold": 500000000, "score": 100},
+      {"threshold": 1000000000, "score": 75},
+      {"threshold": 2000000000, "score": 55},
+      {"threshold": Infinity, "score": 35}
+    ]
+  },
+  "predictionConfig": {
+    "success_probability": {
+      "base": 60,
+      "score_multiplier": 0.6,
+      "failure_penalty": 8,
+      "discount_rate_multiplier": 0.5,
+      "discount_rate_base": 20,
+      "min": 5, "max": 95
+    },
+    "final_price": {
+      "competition_multiplier": 0.15
+    },
+    "appreciation": {
+      "base_rate": 0.03,
+      "region_development_bonus": 0.02,
+      "property_type_growth_bonus": 0.02,
+      "market_trend_bonus": 0.01
+    },
+    "competition_level": {
+      "base_level": 3,
+      "thresholds": [
+        {"score_ge": 80, "level": 5},
+        {"score_ge": 65, "level": 4},
+        {"score_ge": 50, "level": 3},
+        {"score_ge": 35, "level": 2}
+      ],
+      "failure_penalty": 1,
+      "min_level": 1,
+      "max_level": 5
+    },
+    "default_liquidity_multiplier": 50
+  },
+  "recommendationThresholds": {
+    "S": 85,
+    "A": 70,
+    "B": 55,
+    "C": 40
+  }
+}

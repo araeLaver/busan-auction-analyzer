@@ -1,5 +1,7 @@
 const axios = require('axios');
 const xml2js = require('xml2js');
+require('dotenv').config(); // Load environment variables
+const pool = require('../../config/database'); // Database connection pool
 
 /**
  * 온비드 공식 API를 사용한 실제 경매 데이터 수집기
@@ -7,14 +9,18 @@ const xml2js = require('xml2js');
 class OnbidApiScraper {
     constructor() {
         this.baseUrl = 'http://openapi.onbid.co.kr/openapi/services';
-        this.serviceKey = 'TEST'; // 테스트용 키
+        this.serviceKey = process.env.ONBID_API_KEY; // 환경 변수에서 API 키 로드
         this.parser = new xml2js.Parser();
+        this.sessionStart = Date.now(); // 스크래핑 시간 기록
     }
 
     /**
      * 실제 경매 물건 목록 조회
      */
     async getRealAuctionProperties(numOfRows = 50) {
+        const logId = await this.logScrapingStart('onbid_api');
+        const stats = { totalFound: 0, newItems: 0, updatedItems: 0, errorCount: 0 };
+
         try {
             console.log('🔍 온비드 API로 실제 경매 물건 조회 중...');
             
@@ -63,18 +69,39 @@ class OnbidApiScraper {
                     console.log('✅ API 호출 성공');
                     
                     const items = body?.items?.[0]?.item || [];
+                    stats.totalFound = items.length; // 총 발견된 물건 수 기록
                     console.log(`📦 받은 물건 수: ${items.length}`);
                     
                     const properties = this.parseApiResponse(items);
                     
+                    // 각 물건을 데이터베이스에 저장
+                    for (const property of properties) {
+                        try {
+                            const saved = await this.saveProperty(property);
+                            if (saved.isNew) {
+                                stats.newItems++;
+                            } else {
+                                stats.updatedItems++;
+                            }
+                        } catch (saveError) {
+                            stats.errorCount++;
+                            console.error(`❌ 물건 저장 오류 (${property.case_number}):`, saveError.message);
+                        }
+                    }
+                    
+                    await this.logScrapingEnd(logId, stats);
+                    console.log(`✅ 온비드 API 스크래핑 완료: 신규 ${stats.newItems}개, 업데이트 ${stats.updatedItems}개, 오류 ${stats.errorCount}개`);
+
                     return properties;
                     
                 } else {
                     console.log('❌ API 오류:', header?.resultMsg?.[0]);
+                    await this.logScrapingEnd(logId, stats, new Error(header?.resultMsg?.[0])); // 오류 로그
                     return [];
                 }
             }
             
+            await this.logScrapingEnd(logId, stats); // 빈 응답의 경우에도 로그
             return [];
             
         } catch (error) {
@@ -87,7 +114,24 @@ class OnbidApiScraper {
             
             // API 키 없이도 실제 온비드 현재 물건 데이터 제공
             console.log('🔄 현재 온비드에서 진행 중인 실제 물건들을 제공합니다...');
-            return await this.getAlternativeData();
+            const alternativeData = await this.getAlternativeData();
+            
+            // 대체 데이터도 DB에 저장 시도
+            for (const property of alternativeData) {
+                try {
+                    const saved = await this.saveProperty(property);
+                    if (saved.isNew) {
+                        stats.newItems++;
+                    } else {
+                        stats.updatedItems++;
+                    }
+                } catch (saveError) {
+                    stats.errorCount++;
+                    console.error(`❌ 대체 물건 저장 오류 (${property.case_number}):`, saveError.message);
+                }
+            }
+            await this.logScrapingEnd(logId, stats, error); // 오류 로그와 함께 종료
+            return alternativeData;
         }
     }
 
@@ -264,6 +308,155 @@ class OnbidApiScraper {
             }
         ];
     }
+
+    /**
+     * 스크래핑 로그 시작
+     */
+    async logScrapingStart(sourceSite) {
+      const query = `
+        INSERT INTO scraping_logs (source_site, status) 
+        VALUES ($1, 'running') 
+        RETURNING id
+      `;
+      const result = await pool.query(query, [sourceSite]);
+      return result.rows[0].id;
+    }
+
+    /**
+     * 스크래핑 로그 종료
+     */
+    async logScrapingEnd(logId, stats, error = null) {
+      const executionTime = Math.floor((Date.now() - this.sessionStart) / 1000);
+      
+      const query = `
+        UPDATE scraping_logs 
+        SET status = $2, 
+            total_found = $3, 
+            new_items = $4, 
+            updated_items = $5,
+            error_count = $6,
+            error_message = $7,
+            execution_time = $8
+        WHERE id = $1
+      `;
+      
+      await pool.query(query, [
+        logId, 
+        error ? 'failed' : 'completed', 
+        stats.totalFound, 
+        stats.newItems, 
+        stats.updatedItems,
+        error ? stats.errorCount || 1 : 0,
+        error ? error.message : null,
+        executionTime
+      ]);
+    }
+
+    /**
+     * 물건 저장 (데이터베이스 연동)
+     * @param {object} property - 저장할 물건 데이터
+     */
+    async saveProperty(property) {
+      const client = await pool.connect();
+      let isNew = false;
+      
+      try {
+        await client.query('BEGIN');
+        
+        // 법원 ID 조회 (온비드는 '온비드'로 고정)
+        const courtResult = await client.query(
+          'SELECT id FROM courts WHERE name = $1',
+          ['온비드']
+        );
+        
+        const courtId = courtResult.rows[0]?.id || null; // 온비드 법원 ID가 없으면 null
+        
+        // 기존 데이터 확인
+        const existingResult = await client.query(
+          'SELECT id FROM properties WHERE case_number = $1 AND source_site = $2',
+          [property.case_number, property.source_url]
+        );
+        
+        if (existingResult.rows.length > 0) {
+          // 업데이트
+          const updateQuery = `
+            UPDATE properties SET 
+              address = $1,
+              property_type = $2,
+              building_name = $3,
+              appraisal_value = $4,
+              minimum_sale_price = $5,
+              auction_date = $6,
+              auction_time = $7,
+              current_status = $8,
+              last_scraped_at = NOW(),
+              updated_at = NOW(),
+              onbid_url = $9,
+              discount_rate = $10,
+              bid_deposit = $11
+            WHERE case_number = $12 AND source_site = $13
+          `;
+          
+          await client.query(updateQuery, [
+            property.address,
+            property.property_type,
+            property.building_name,
+            property.appraisal_value,
+            property.minimum_sale_price,
+            property.auction_date,
+            property.auction_time,
+            property.current_status,
+            property.onbid_url,
+            property.discount_rate,
+            property.bid_deposit,
+            property.case_number,
+            property.source_url
+          ]);
+          
+        } else {
+          // 신규 삽입
+          const insertQuery = `
+            INSERT INTO properties (
+              case_number, court_id, address, property_type, building_name,
+              appraisal_value, minimum_sale_price, auction_date, auction_time,
+              current_status, source_site, source_url, last_scraped_at, onbid_url,
+              discount_rate, bid_deposit
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13, $14, $15)
+          `;
+          
+          await client.query(insertQuery, [
+            property.case_number,
+            courtId,
+            property.address,
+            property.property_type,
+            property.building_name,
+            property.appraisal_value,
+            property.minimum_sale_price,
+            property.auction_date,
+            property.auction_time,
+            property.current_status,
+            property.source_url,
+            property.source_url, // source_url과 onbid_url을 동일하게 사용
+            property.onbid_url,
+            property.discount_rate,
+            property.bid_deposit
+          ]);
+          
+          isNew = true;
+        }
+        
+        await client.query('COMMIT');
+        
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+      
+      return { isNew };
+    }
+
 }
 
 module.exports = OnbidApiScraper;
