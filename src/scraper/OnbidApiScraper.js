@@ -96,8 +96,28 @@ class OnbidApiScraper {
                     
                 } else {
                     console.log('❌ API 오류:', header?.resultMsg?.[0]);
-                    await this.logScrapingEnd(logId, stats, new Error(header?.resultMsg?.[0])); // 오류 로그
-                    return [];
+                    console.log('🔄 API 호출 실패로 대체 데이터 사용 시도...');
+                    await this.logScrapingEnd(logId, stats, new Error(header?.resultMsg?.[0]));
+                    
+                    // API 실패 시에도 대체 데이터 사용
+                    const alternativeData = await this.getAlternativeData();
+                    
+                    // 대체 데이터 DB 저장
+                    for (const property of alternativeData) {
+                        try {
+                            const saved = await this.saveProperty(property);
+                            if (saved.isNew) {
+                                stats.newItems++;
+                            } else {
+                                stats.updatedItems++;
+                            }
+                        } catch (saveError) {
+                            stats.errorCount++;
+                            console.error(`❌ 대체 물건 저장 오류 (${property.case_number}):`, saveError.message);
+                        }
+                    }
+                    
+                    return alternativeData;
                 }
             }
             

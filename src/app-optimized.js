@@ -732,7 +732,7 @@ module.exports = OptimizedBusanAuctionApp;
 if (require.main === module) {
   const app = new OptimizedBusanAuctionApp();
 
-  const port = process.env.PORT || 3002;
+  const port = process.env.PORT || 3000;
 
   app.start(port).catch((error) => {
     console.error('❌ 애플리케이션 시작 실패:', error);

@@ -16,8 +16,7 @@ const REQUIRED_ENV_VARS = [
  * 선택적 환경변수와 기본값
  */
 const OPTIONAL_ENV_VARS = {
-  PORT: '3001',
-  NODE_ENV: 'development',
+      PORT: '3000',  NODE_ENV: 'development',
   LOG_LEVEL: 'info',
   JWT_SECRET: 'your-secret-key-change-this-in-production',
   JWT_EXPIRES_IN: '24h',

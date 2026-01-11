@@ -81,7 +81,7 @@
     {"threshold": 500000000, "label": "3-5억"},
     {"threshold": 1000000000, "label": "5-10억"},
     {"threshold": 2000000000, "label": "10-20억"},
-    {"threshold": Infinity, "label": "20억이상"}
+    {"threshold": 9999999999999, "label": "20억이상"}
   ],
   "liquidityMaps": {
     "type": {
@@ -107,7 +107,7 @@
       {"threshold": 500000000, "score": 100},
       {"threshold": 1000000000, "score": 75},
       {"threshold": 2000000000, "score": 55},
-      {"threshold": Infinity, "score": 35}
+      {"threshold": 9999999999999, "score": 35}
     ]
   },
   "predictionConfig": {

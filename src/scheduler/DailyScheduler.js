@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const CourtAuctionScraper = require('../scraper/CourtAuctionScraper');
+const AdvancedCourtAuctionScraper = require('../scraper/AdvancedCourtAuctionScraper');
 const PropertyAnalyzer = require('../analyzer/PropertyAnalyzer');
 const pool = require('../../config/database');
 
@@ -51,10 +51,10 @@ class DailyScheduler {
       
       // 1. 스크래핑 실행
       console.log('\n📡 1단계: 스크래핑 시작...');
-      this.scraper = new CourtAuctionScraper();
+      this.scraper = new AdvancedCourtAuctionScraper();
       await this.scraper.initialize();
       
-      const scrapingResults = await this.scraper.scrapeSeoulAuctions();
+      const scrapingResults = await this.scraper.scrapeBusanAuctions();
       await this.scraper.close();
       
       console.log(`✅ 스크래핑 완료: 신규 ${scrapingResults.newItems}개, 업데이트 ${scrapingResults.updatedItems}개`);

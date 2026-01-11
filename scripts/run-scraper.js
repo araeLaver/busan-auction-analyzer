@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const RealAuctionScraper = require('../src/scraper/RealAuctionScraper');
+const AdvancedCourtAuctionScraper = require('../src/scraper/AdvancedCourtAuctionScraper');
 
 /**
  * 실제 법원경매 데이터 수집 스크립트
@@ -36,7 +36,7 @@ async function main() {
     console.log('🚀 부산 경매 데이터 수집 시작');
     console.log('📋 옵션:', JSON.stringify(options, null, 2));
     
-    const scraper = new RealAuctionScraper();
+    const scraper = new AdvancedCourtAuctionScraper();
     
     try {
         // 스크래퍼 초기화

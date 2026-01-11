@@ -14,8 +14,8 @@ async function addRealAuctionData() {
         
         // 기존 테스트 데이터 삭제
         console.log('🗑️ 기존 테스트 데이터 삭제 중...');
-        await client.query('DELETE FROM auction_service.analysis_results');
-        await client.query('DELETE FROM auction_service.properties');
+        await client.query('DELETE FROM analyzer.analysis_results');
+        await client.query('DELETE FROM analyzer.properties');
         
         // 실제 현재 진행 중인 경매 물건들 (2024년 12월 기준)
         const realProperties = [
@@ -141,15 +141,15 @@ async function addRealAuctionData() {
         for (const property of realProperties) {
             // 법원 ID 찾기 (없으면 추가)
             let courtResult = await client.query(
-                'SELECT id FROM auction_service.courts WHERE name = $1',
+                'SELECT id FROM analyzer.courts WHERE name = $1',
                 [property.court_name]
             );
             
             let courtId;
             if (courtResult.rows.length === 0) {
                 courtResult = await client.query(
-                    'INSERT INTO auction_service.courts (name, region, contact_phone) VALUES ($1, $2, $3) RETURNING id',
-                    [property.court_name, property.court_name.substring(0, 2), '02-123-4567']
+                    'INSERT INTO analyzer.courts (name, code, address) VALUES ($1, $2, $3) RETURNING id',
+                    [property.court_name, property.court_name.substring(0, 2) + Math.floor(Math.random() * 1000), '주소 미상']
                 );
                 courtId = courtResult.rows[0].id;
                 console.log(`➕ 새 법원 추가: ${property.court_name}`);
@@ -159,12 +159,12 @@ async function addRealAuctionData() {
 
             // 물건 정보 추가
             const propertyResult = await client.query(`
-                INSERT INTO auction_service.properties (
+                INSERT INTO analyzer.properties (
                     case_number, item_number, court_id, property_type, address, 
-                    building_name, area, floor_info, appraisal_value, minimum_sale_price,
+                    building_name, building_area, floor_info, appraisal_value, minimum_sale_price,
                     auction_date, auction_time, failure_count, current_status, 
-                    tenant_status, source_url, scraped_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                    tenant_status, source_url, last_scraped_at, source_site
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                 RETURNING id
             `, [
                 property.case_number,
@@ -183,7 +183,8 @@ async function addRealAuctionData() {
                 'active',
                 property.tenant_status,
                 'https://www.courtauction.go.kr',
-                new Date()
+                new Date(),
+                'courtauction'
             ]);
 
             const propertyId = propertyResult.rows[0].id;
@@ -193,10 +194,10 @@ async function addRealAuctionData() {
             const discountRate = ((property.appraisal_value - property.minimum_sale_price) / property.appraisal_value * 100);
             
             await client.query(`
-                INSERT INTO auction_service.analysis_results (
+                INSERT INTO analyzer.analysis_results (
                     property_id, investment_score, investment_grade,
                     profitability_score, risk_score, liquidity_score, location_score,
-                    success_probability, analyzed_at
+                    success_probability, analysis_date
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             `, [
                 propertyId,
@@ -221,8 +222,8 @@ async function addRealAuctionData() {
                 property_type,
                 COUNT(*) as count,
                 AVG(investment_score)::int as avg_score
-            FROM auction_service.properties p
-            LEFT JOIN auction_service.analysis_results ar ON p.id = ar.property_id
+            FROM analyzer.properties p
+            LEFT JOIN analyzer.analysis_results ar ON p.id = ar.property_id
             WHERE p.current_status = 'active'
             GROUP BY property_type
             ORDER BY count DESC
@@ -243,7 +244,7 @@ if (require.main === module) {
     addRealAuctionData()
         .then(() => {
             console.log('🎉 실제 경매 데이터로 교체 완료!');
-            console.log('   http://localhost:3002 에서 확인해보세요.');
+            console.log('   http://localhost:3000 에서 확인해보세요.');
             process.exit(0);
         })
         .catch(error => {

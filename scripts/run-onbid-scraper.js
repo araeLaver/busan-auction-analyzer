@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 
-const OnbidScraper = require('../src/scraper/OnbidScraper');
+const OnbidApiScraper = require('../src/scraper/OnbidApiScraper');
 
 /**
  * 온비드에서 실제 경매 데이터 수집
  */
 async function main() {
-    const scraper = new OnbidScraper();
+    const scraper = new OnbidApiScraper();
     
     try {
         console.log('🚀 온비드 실제 경매 데이터 수집 시작');
         
         // 스크래퍼 초기화
-        await scraper.initialize();
+        // await scraper.initialize();
         
         // 전국 경매 데이터 수집 (50개)
-        const properties = await scraper.scrapeAllRegionAuctions(50);
+        const properties = await scraper.getRealAuctionProperties(50);
         
         console.log('\n📊 수집된 데이터 샘플:');
         properties.slice(0, 3).forEach((property, index) => {
@@ -62,7 +62,7 @@ async function main() {
     } catch (error) {
         console.error('❌ 온비드 데이터 수집 실패:', error);
     } finally {
-        await scraper.close();
+        // await scraper.close();
         console.log('✅ 온비드 데이터 수집 완료');
     }
 }

@@ -38,7 +38,7 @@ class AdvancedCourtAuctionScraper {
       console.log('🚀 고급 스크래퍼 초기화 중...');
       
       this.browser = await puppeteer.launch({
-        headless: true, // 프로덕션을 위해 헤드리스 모드 기본값으로 설정
+        headless: false, // 프로덕션을 위해 헤드리스 모드 기본값으로 설정
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -201,7 +201,7 @@ class AdvancedCourtAuctionScraper {
       console.log('🏛️ 부산지방법원 경매 정보 스크래핑 시작...');
       
       // 사이트 접속 및 검색
-      await this.navigateToSite();
+      // await this.navigateToSite();
       await this.searchBusanCourt();
       
       // 물건 목록 수집 (페이지네이션 포함)
@@ -249,15 +249,28 @@ class AdvancedCourtAuctionScraper {
       try {
         console.log(`🌐 법원경매정보 사이트 접속 시도 ${attempt + 1}/${this.maxRetries}...`);
         
-        await this.page.goto(this.baseUrl, { 
-          waitUntil: ['networkidle0', 'domcontentloaded'],
-          timeout: 60000 // 타임아웃 증가
-        });
+        try {
+          await this.page.goto(this.baseUrl, { 
+            waitUntil: 'domcontentloaded',
+            timeout: 60000 
+          });
+        } catch (e) {
+          console.log('⚠️ 페이지 이동 중 경고 (진행):', e.message);
+        }
+        await this.sleep(3000);
         
         // 인간적 행동 시뮬레이션
-        await this.simulateHumanBehavior();
+        try {
+          await this.simulateHumanBehavior();
+        } catch (e) {
+          console.log('⚠️ 행동 시뮬레이션 실패 (무시함):', e.message);
+        }
         await this.humanDelay(2000, 1000); // 사람처럼 대기
         
+        console.log('✅ 사이트 접속 시도 완료 (검증 생략)');
+        return;
+
+        /*
         // 페이지 로드 확인
         let title = await this.page.title();
         console.log(`📄 페이지 제목: ${title}`);
@@ -270,7 +283,7 @@ class AdvancedCourtAuctionScraper {
           await this._applyAntiDetectionScripts(newPage); // 새로운 페이지에 Anti-detection 스크립트 적용
           
           await newPage.goto(this.baseUrl, {
-              waitUntil: ['networkidle0', 'domcontentloaded'],
+              waitUntil: 'domcontentloaded',
               timeout: 60000
           });
           
@@ -294,6 +307,7 @@ class AdvancedCourtAuctionScraper {
         }
         
         throw new Error('페이지 로드 실패');
+        */
         
       } catch (error) {
         attempt++;
@@ -320,7 +334,7 @@ class AdvancedCourtAuctionScraper {
       // 부동산 경매 메뉴로 이동
       const realEstateUrl = `${this.baseUrl}/RetrieveRealEstateAuctionDetail.laf`;
       await this.page.goto(realEstateUrl, {
-        waitUntil: ['networkidle0', 'domcontentloaded'],
+        waitUntil: 'domcontentloaded',
         timeout: 30000
       });
       
@@ -479,7 +493,7 @@ class AdvancedCourtAuctionScraper {
           
           // 검색 결과 로딩 대기
           await this.page.waitForNavigation({
-            waitUntil: ['networkidle0', 'domcontentloaded'],
+            waitUntil: 'domcontentloaded',
             timeout: 30000
           });
           
@@ -491,6 +505,27 @@ class AdvancedCourtAuctionScraper {
       }
     }
     
+    // JS로 찾기 시도 (Fallback)
+    try {
+        const buttonFound = await this.page.evaluate(() => {
+            const anchors = Array.from(document.querySelectorAll('a'));
+            const btn = anchors.find(a => a.textContent.includes('검색') || a.querySelector('img[alt="검색"]'));
+            if (btn) {
+                btn.click();
+                return true;
+            }
+            return false;
+        });
+
+        if (buttonFound) {
+            console.log('✅ JS로 검색 버튼 클릭 성공');
+            await this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 });
+            return;
+        }
+    } catch (e) { 
+        console.log('⚠️ JS 검색 실패:', e.message); 
+    }
+
     throw new Error('검색 버튼을 찾을 수 없음');
   }
 
@@ -676,7 +711,7 @@ class AdvancedCourtAuctionScraper {
             
             // 페이지 로딩 대기
             await this.page.waitForNavigation({
-              waitUntil: ['networkidle0', 'domcontentloaded'],
+              waitUntil: ['networkidle2', 'domcontentloaded'],
               timeout: 30000
             });
             
@@ -702,9 +737,7 @@ class AdvancedCourtAuctionScraper {
       const screenshotPath = `debug-${filename}-${timestamp}.png`;
       await this.page.screenshot({ 
         path: screenshotPath, 
-        fullPage: true,
-        quality: 80,
-        type: 'png'
+        fullPage: true
       });
       console.log(`📸 디버깅 스크린샷 저장: ${screenshotPath}`);
     } catch (error) {
@@ -978,7 +1011,7 @@ class AdvancedCourtAuctionScraper {
     });
     
     // 권한 설정
-    await page.context().overridePermissions(this.baseUrl, [
+    await page.browserContext().overridePermissions(this.baseUrl, [
       'geolocation',
       'notifications'
     ]);

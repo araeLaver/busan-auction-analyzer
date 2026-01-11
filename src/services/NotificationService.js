@@ -171,11 +171,24 @@ class NotificationService {
           timestamp: new Date().toISOString()
         };
 
+        // 알림 타입에 따른 이벤트 이름 매핑
+        let eventName = 'notification';
+        if (['PROPERTY_ADDED', 'PROPERTY_UPDATED', 'PRICE_DROP'].includes(notification_type)) {
+            eventName = 'property-update';
+        } else if (notification_type === 'ANALYSIS_COMPLETE') {
+            eventName = 'analysis-complete';
+        } else if (notification_type === 'MARKET_ALERT') {
+            eventName = 'market-update';
+        }
+
         if (user_id) {
           // 특정 사용자에게 전송
+          this.io.to(`user_${user_id}`).emit(eventName, socketData);
+          // 일반 알림 이벤트도 함께 전송 (알림 센터용)
           this.io.to(`user_${user_id}`).emit('notification', socketData);
         } else {
           // 전체 사용자에게 브로드캐스트
+          this.io.emit(eventName, socketData);
           this.io.emit('notification', socketData);
         }
       }

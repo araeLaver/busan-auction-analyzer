@@ -111,6 +111,10 @@ cp .env.example .env
 # .env 파일에서 데이터베이스 정보 수정
 ```
 
+### 🔑 **API 키 설정 (선택사항)**
+- **온비드 데이터**: [공공데이터포털](https://www.data.go.kr/data/15000679/openapi.do)에서 API 키를 발급받아 `.env` 파일에 `ONBID_API_KEY`를 설정하면 실시간 공매 데이터를 수집할 수 있습니다.
+- **네이버/카카오 지도**: `public/index.html` 내의 API 키를 본인의 키로 교체하면 지도 서비스가 활성화됩니다.
+
 ### 🗄️ **2단계: 데이터베이스 설정**
 ```bash
 # PostgreSQL 데이터베이스 생성
