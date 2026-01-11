@@ -34,30 +34,98 @@ class AIInvestmentAnalyzer {
 
   /**
    * 예측 모델 학습 (Linear Regression)
-   * 현재는 sold 데이터가 부족하므로 가상의 패턴으로 초기화
+   * DB에 축적된 실제 낙찰(sold) 데이터를 기반으로 학습
    */
-  trainPredictionModel() {
+  async trainPredictionModel() {
     try {
-        // 학습 데이터: [감정가(억단위), 유찰횟수] -> [낙찰가율(%)]
-        // 유찰이 1회 될 때마다 낙찰가율이 약 20%p 감소하는 경향 + 감정가가 높을수록 약간 낮아지는 경향
-        const trainingData = [
-            [[10, 0], 95], // 10억, 신건 -> 95%
-            [[5, 0], 98],  // 5억, 신건 -> 98%
-            [[10, 1], 78], // 10억, 1회 유찰 -> 78%
-            [[5, 1], 82],  // 5억, 1회 유찰 -> 82%
-            [[10, 2], 62], // 10억, 2회 유찰 -> 62%
-            [[3, 2], 65],  // 3억, 2회 유찰 -> 65%
-            [[20, 0], 90], // 20억, 신건 -> 90%
-            [[20, 1], 75]  // 20억, 1회 유찰 -> 75%
-        ];
+      console.log('🤖 AI 예측 모델 학습 시작 (DB 데이터 기반)...');
+
+      const client = await pool.connect();
+      try {
+        // 최근 1년 내 낙찰된 물건 데이터 조회
+        // 감정가 대비 낙찰가 비율(낙찰가율)을 예측하는 모델
+        // Feature: [감정가(억단위), 유찰횟수]
+        // Label: 낙찰가율 (%)
+        const query = `
+          SELECT 
+            appraisal_value, 
+            failure_count, 
+            minimum_sale_price 
+          FROM analyzer.properties 
+          WHERE current_status = 'sold' 
+            AND appraisal_value > 0 
+            AND minimum_sale_price > 0
+            AND created_at >= NOW() - INTERVAL '1 year'
+          LIMIT 1000
+        `;
+        
+        const result = await client.query(query);
+        
+        if (result.rows.length < 10) {
+          console.warn('⚠️ 학습 데이터 부족 (10개 미만). 기본 모델을 사용합니다.');
+          this._useDefaultModel();
+          return;
+        }
+
+        const trainingData = result.rows.map(row => {
+          const appraisalBillion = parseFloat(row.appraisal_value) / 100000000; // 억 단위
+          const saleRate = (parseFloat(row.minimum_sale_price) / parseFloat(row.appraisal_value)) * 100;
+          
+          // 이상치 제거 (낙찰가율 10% 미만이나 200% 초과 제외)
+          if (saleRate < 10 || saleRate > 200) return null;
+
+          return [
+            [appraisalBillion, parseInt(row.failure_count)], // Features
+            saleRate // Label
+          ];
+        }).filter(item => item !== null);
+
+        if (trainingData.length < 5) {
+            console.warn('⚠️ 유효한 학습 데이터 부족. 기본 모델을 사용합니다.');
+            this._useDefaultModel();
+            return;
+        }
 
         this.regressionModel = ss.linearRegression(trainingData);
-        console.log('🤖 AI 예측 모델 학습 완료 (Linear Regression)');
-        console.log(`   - 회귀계수: m=${this.regressionModel.m}, b=${this.regressionModel.b}`);
+        const rSquared = ss.rSquared(trainingData, this.regressionModel); // 결정계수 계산 (선형회귀 단순 적용 시 정확하진 않음)
+
+        console.log(`✅ AI 모델 학습 완료 (데이터: ${trainingData.length}건)`);
+        console.log(`   - 회귀식: y = ${this.regressionModel.m.toFixed(2)}x + ${this.regressionModel.b.toFixed(2)}`);
+        // simple-statistics의 linearRegression은 단일 변수 입력([x], y)을 가정하므로 
+        // 다중 변수([x1, x2], y) 입력 시 m이 기울기 배열이 아닌 단일 값으로 나올 수 있어 주의 필요.
+        // 현재 라이브러리 제약상 유찰횟수를 주요 변수로 사용하는 단순 선형 회귀로 fallback 하거나
+        // 다중 회귀 구현이 필요함. 여기서는 '유찰횟수' 단일 변수로 단순화하여 적용.
+        
+        this._trainSimpleModel(trainingData);
+
+      } finally {
+        client.release();
+      }
         
     } catch (error) {
         console.warn('⚠️ 모델 학습 실패:', error.message);
+        this._useDefaultModel();
     }
+  }
+
+  // 단순 선형 회귀 (유찰횟수 -> 낙찰가율)
+  _trainSimpleModel(data) {
+    // [유찰횟수, 낙찰가율] 형태로 변환
+    const simpleData = data.map(d => [d[0][1], d[1]]);
+    this.regressionModel = ss.linearRegression(simpleData);
+    console.log(`   - 단순 회귀(유찰횟수 기반): 기울기 ${this.regressionModel.m.toFixed(2)}, 절편 ${this.regressionModel.b.toFixed(2)}`);
+  }
+
+  _useDefaultModel() {
+    // 학습 데이터 부족 시 기본 하드코딩 모델 사용
+     const trainingData = [
+        [0, 95], // 신건 -> 95%
+        [1, 78], // 1회 유찰 -> 78%
+        [2, 62], // 2회 유찰 -> 62%
+        [3, 50]  // 3회 유찰 -> 50%
+    ];
+    this.regressionModel = ss.linearRegression(trainingData);
+    console.log('   - 기본 모델 로드 완료');
   }
 
   /**
@@ -386,36 +454,70 @@ class AIInvestmentAnalyzer {
   }
 
   /**
-   * 법적 위험도 분석
+   * 법적 위험도 분석 (권리분석 고도화)
    */
   analyzeLegalRisk(property) {
     let riskScore = 0;
+    let riskFactors = [];
     
-    // 임차인 존재 여부
+    // 임차인 존재 여부 (기본 리스크)
     if (property.tenant_status === '있음') {
-      riskScore += 25;
+      riskScore += 15;
+      riskFactors.push('임차인 존재');
     }
     
-    // 특이사항 분석
+    // 특이사항 정밀 분석
     if (property.special_notes) {
-      const riskKeywords = ['전세', '임대', '점유', '소송', '가압류', '압류', '선순위'];
       const notes = property.special_notes.toLowerCase();
       
-      riskKeywords.forEach(keyword => {
+      // 치명적 위험 요소 (낙찰자 인수 가능성 높음)
+      const highRiskKeywords = ['유치권', '법정지상권', '가처분', '대항력', '인수', '재매각', '불법'];
+      // 일반 위험 요소 (명도 난이도 증가 등)
+      const mediumRiskKeywords = ['전세권', '임차권', '가압류', '압류', '선순위', '점유', '미상'];
+      // 안전 요소 (리스크 감소)
+      const safeKeywords = ['말소', '소멸', '배당'];
+
+      // HIGH RISK 체크
+      highRiskKeywords.forEach(keyword => {
+        if (notes.includes(keyword)) {
+          riskScore += 30; // 치명적 감점
+          riskFactors.push(`치명적 위험: ${keyword}`);
+        }
+      });
+
+      // MEDIUM RISK 체크
+      mediumRiskKeywords.forEach(keyword => {
         if (notes.includes(keyword)) {
           riskScore += 10;
+          riskFactors.push(`주의: ${keyword}`);
+        }
+      });
+      
+      // SAFE FACTOR 체크 (리스크 점수 경감)
+      safeKeywords.forEach(keyword => {
+        if (notes.includes(keyword)) {
+          riskScore = Math.max(0, riskScore - 5);
         }
       });
     }
     
-    // 유찰 횟수에 따른 법적 복잡성
-    riskScore += Math.min(property.failure_count * 5, 20);
+    // 유찰 횟수에 따른 법적 복잡성 추정
+    // 3회 이상 유찰은 단순 가격 문제가 아닐 가능성 높음
+    if (property.failure_count >= 3) {
+      riskScore += 20;
+      riskFactors.push('잦은 유찰(권리하자 의심)');
+    } else {
+      riskScore += Math.min(property.failure_count * 5, 15);
+    }
+    
+    // 리스크 점수는 최대 100점 제한
+    const finalRiskScore = Math.min(riskScore, 100);
     
     return {
-      score: Math.min(riskScore, 100),
-      tenantRisk: property.tenant_status === '있음' ? 25 : 0,
-      specialNotesRisk: property.special_notes ? 15 : 0,
-      failureComplexity: Math.min(property.failure_count * 5, 20)
+      score: finalRiskScore,
+      tenantRisk: property.tenant_status === '있음' ? 15 : 0,
+      riskLevel: finalRiskScore >= 50 ? 'HIGH' : (finalRiskScore >= 20 ? 'MEDIUM' : 'LOW'),
+      riskFactors: riskFactors
     };
   }
 
@@ -671,12 +773,75 @@ class AIInvestmentAnalyzer {
   }
 
   async estimateMarketPrice(property) {
-    // 시장가 추정 로직 (추후 외부 API 연동 또는 ML 모델 적용)
-    const basePrice = property.minimum_sale_price;
-    const region = this.extractRegion(property.address);
-    const multiplier = this.busanRegionScores[region]?.liquidity || this.config.predictionConfig.default_liquidity_multiplier;
+    // 시장가 추정 로직 (유사 사례 비교법 적용)
+    // 1. 같은 지역(동), 같은 용도의 최근 매각 물건 조회
+    // 2. 평균 낙찰가율(감정가 대비 낙찰가 비율) 계산
+    // 3. 현재 물건 감정가에 적용
     
-    return Math.round(basePrice * (1 + multiplier / 200));
+    const client = await pool.connect();
+    try {
+      const region = this.extractRegion(property.address); // 구/동 단위 추출
+      // 더 정밀한 매칭을 위해 주소에서 '동' 추출 시도 (예: '해운대구 우동' -> '%우동%')
+      const dongMatch = property.address.match(/(\S+[동|가|로])\s/);
+      const searchKeyword = dongMatch ? `%${dongMatch[1]}%` : `%${region}%`;
+
+      // 유사 물건 조회 쿼리
+      const query = `
+        SELECT 
+          appraisal_value, 
+          minimum_sale_price 
+        FROM analyzer.properties 
+        WHERE current_status = 'sold'
+          AND property_type = $1
+          AND address LIKE $2
+          AND created_at >= NOW() - INTERVAL '1 year'
+          AND appraisal_value > 0
+      `;
+
+      const result = await client.query(query, [property.property_type, searchKeyword]);
+      
+      let averageRate = 0;
+      
+      if (result.rows.length > 0) {
+        // 평균 낙찰가율 계산
+        let totalRate = 0;
+        let count = 0;
+        
+        result.rows.forEach(row => {
+          const rate = parseFloat(row.minimum_sale_price) / parseFloat(row.appraisal_value);
+          // 이상치 제거 (10% 미만, 200% 초과)
+          if (rate >= 0.1 && rate <= 2.0) {
+            totalRate += rate;
+            count++;
+          }
+        });
+        
+        if (count > 0) {
+          averageRate = totalRate / count;
+        }
+      }
+
+      // 데이터가 없거나 부족하면 기본 로직 사용
+      if (averageRate === 0) {
+        // 기본값: 아파트는 90%, 그 외는 80% 등으로 가정
+        averageRate = property.property_type === '아파트' ? 0.9 : 0.8;
+        
+        // 유찰 횟수에 따른 보정 (유찰될수록 시세가 낮게 평가된 것일 수 있음 -> 보수적 접근)
+        // 하지만 '시세'는 낙찰가와 다르므로 감정가를 기준으로 하되,
+        // 최근 부동산 하락장을 반영하여 감정가의 80~90% 수준으로 보정
+      }
+
+      const estimatedPrice = Math.round(property.appraisal_value * averageRate);
+      
+      // 최저매각가보다 낮게 추정되면 최저매각가의 105%로 보정 (최소한의 마진)
+      return Math.max(estimatedPrice, Math.round(property.minimum_sale_price * 1.05));
+      
+    } catch (error) {
+      console.warn('⚠️ 시세 추정 실패, 기본값 사용:', error.message);
+      return Math.round(property.minimum_sale_price * 1.1); // 최저가의 110%
+    } finally {
+      client.release();
+    }
   }
 
   calculateROI(property, marketPrice, years, appreciation = 0.03) {

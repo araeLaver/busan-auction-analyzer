@@ -607,19 +607,19 @@ class CacheService {
 
     if (filters.region) {
       paramCount++;
-      // 지역명에 따른 매칭 패턴 개선
-      let regionPattern;
-      if (filters.region === '서울') {
-        regionPattern = '서울%';
-      } else if (filters.region === '부산') {
-        regionPattern = '부산%';
-      } else if (filters.region === '경기') {
-        regionPattern = '경기%';
-      } else {
-        regionPattern = `%${filters.region}%`;
-      }
+      // Full-Text Search 적용
+      // 검색어 전처리: 공백을 & 연산자로 변환하여 모든 단어가 포함되도록 함
+      const searchTerms = filters.region.trim().split(/\s+/).map(term => `${term}:*`).join(' & ');
       
-      whereConditions.push(`p.address LIKE $${paramCount}`);
+      whereConditions.push(`(search_vector @@ to_tsquery('simple', $${paramCount}) OR p.address LIKE $${paramCount + 1})`);
+      params.push(searchTerms);
+      
+      // Fallback을 위한 LIKE 패턴 (paramCount 증가)
+      paramCount++;
+      let regionPattern = `%${filters.region}%`;
+      if (filters.region === '서울') regionPattern = '서울%';
+      else if (filters.region === '부산') regionPattern = '부산%';
+      
       params.push(regionPattern);
     }
 
@@ -795,17 +795,17 @@ class CacheService {
       auction_date: row.auction_date,
       failure_count: row.failure_count || 0,
       current_status: row.current_status,
-      court_auction_url: row.source_url,
-      onbid_url: `https://www.onbid.co.kr/op/con/conDetail.do?cseq=${Math.floor(Math.random() * 100000) + 1000000}&gubun=11`,
-      goodauction_url: `https://www.goodauction.land/auction/${row.case_number}`,
-      ai_analysis: {
-        investment_score: row.investment_score || Math.floor(Math.random() * 100),
-        investment_category: row.investment_grade || 'EXCELLENT',
+      court_auction_url: row.source_url || `https://www.courtauction.go.kr/RetrieveRealEstateAuctionDetail.laf?saNo=${row.case_number ? row.case_number.split('타경')[0] + '0130' + row.case_number.split('타경')[1] : ''}`,
+      onbid_url: null, // 실제 매핑 데이터 없으므로 제거
+      goodauction_url: `https://www.google.com/search?q=${encodeURIComponent(row.address + ' 경매')}`,
+      ai_analysis: row.investment_score ? {
+        investment_score: row.investment_score,
+        investment_category: row.investment_grade || 'AVERAGE',
         roi_1year: row.roi_1year,
         roi_3year: row.roi_3year,
-        success_probability: row.success_probability || Math.floor(Math.random() * 100),
+        success_probability: row.success_probability || 0,
         estimated_final_price: row.estimated_final_price
-      },
+      } : null,
       is_dummy_data: false,
       data_description: "실제 경매 데이터입니다.",
       data_source: "PostgreSQL Database",

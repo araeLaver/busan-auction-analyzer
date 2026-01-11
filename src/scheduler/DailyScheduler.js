@@ -1,12 +1,16 @@
 const cron = require('node-cron');
 const AdvancedCourtAuctionScraper = require('../scraper/AdvancedCourtAuctionScraper');
 const PropertyAnalyzer = require('../analyzer/PropertyAnalyzer');
+const NotificationService = require('../services/NotificationService');
+const WatchlistService = require('../services/WatchlistService'); // 추가
 const pool = require('../../config/database');
 
 class DailyScheduler {
   constructor() {
     this.scraper = null;
     this.analyzer = null;
+    this.notificationService = new NotificationService();
+    this.watchlistService = new WatchlistService(); // 추가
     this.isRunning = false;
   }
 
@@ -68,7 +72,10 @@ class DailyScheduler {
       const executionTime = Math.round((Date.now() - startTime) / 1000);
       console.log(`\n✅ 일일 프로세스 완료 (${executionTime}초 소요)`);
       
-      // 4. 성공 알림 (필요시 이메일/슬랙 등으로 확장 가능)
+      // 4. 관심 물건 알림 체크
+      await this.checkWatchlistAlerts();
+      
+      // 5. 성공 알림
       await this.logProcessSuccess(scrapingResults, executionTime);
       
     } catch (error) {
@@ -80,6 +87,38 @@ class DailyScheduler {
         await this.scraper.close();
       }
       this.isRunning = false;
+    }
+  }
+
+  async checkWatchlistAlerts() {
+    try {
+      console.log('🔔 관심 물건 알림 체크 시작...');
+      
+      // 1. 입찰 리마인더 대상 조회
+      const reminders = await this.watchlistService.getPropertiesForAuctionReminder();
+      
+      for (const item of reminders) {
+        const auctionDate = new Date(item.auction_date);
+        const today = new Date();
+        const diffDays = Math.ceil((auctionDate - today) / (1000 * 60 * 60 * 24));
+        
+        // D-1, D-3, D-7 인 경우에만 알림 생성
+        if ([1, 3, 7].includes(diffDays)) {
+          await this.notificationService.notifyAuctionReminder(
+            { 
+              id: item.property_id, 
+              address: item.address, 
+              auction_date: item.auction_date 
+            }, 
+            diffDays
+          );
+        }
+      }
+      
+      console.log(`✅ 관심 물건 알림 체크 완료 (대상: ${reminders.length}건)`);
+      
+    } catch (error) {
+      console.error('❌ 관심 물건 알림 체크 중 오류:', error);
     }
   }
 
@@ -268,8 +307,20 @@ class DailyScheduler {
   async logProcessSuccess(scrapingResults, executionTime) {
     try {
       console.log('\n📝 성공 로그 기록...');
-      // 추후 알림 서비스 연동 시 사용
-      // await sendNotification('success', scrapingResults);
+      
+      await this.notificationService.createNotification({
+        type: 'MARKET_ALERT',
+        title: '✅ 일일 스크래핑/분석 완료',
+        message: `신규 ${scrapingResults.newItems}건, 업데이트 ${scrapingResults.updatedItems}건이 처리되었습니다. (${executionTime}초 소요)`,
+        data: {
+          alertType: 'NEW_LISTINGS',
+          newCount: scrapingResults.newItems,
+          updatedCount: scrapingResults.updatedItems,
+          executionTime
+        },
+        priority: 5 // MEDIUM
+      });
+      
     } catch (error) {
       console.error('성공 로그 오류:', error);
     }
@@ -286,8 +337,16 @@ class DailyScheduler {
       
       await pool.query(query, [error.message]);
       
-      // 추후 알림 서비스 연동 시 사용
-      // await sendErrorNotification(error);
+      await this.notificationService.createNotification({
+        type: 'MARKET_ALERT',
+        title: '❌ 일일 프로세스 오류',
+        message: `스크래핑/분석 중 오류가 발생했습니다: ${error.message}`,
+        data: {
+          alertType: 'SYSTEM_ERROR',
+          error: error.message
+        },
+        priority: 2 // HIGH
+      });
       
     } catch (logError) {
       console.error('오류 로그 기록 실패:', logError);

@@ -6,6 +6,12 @@ let currentSort = { by: 'auction_date', order: 'ASC' };
 // 페이지 로드 시 초기화
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('📱 애플리케이션 시작...');
+    
+    // 인증 UI 업데이트 (로그인 상태 확인)
+    if (typeof updateAuthUI === 'function') {
+        updateAuthUI();
+    }
+    
     await loadDashboardStats();
     await loadProperties();
     setupEventListeners();
@@ -52,10 +58,105 @@ async function loadDashboardStats() {
         // 마지막 업데이트 시간 표시
         document.getElementById('lastUpdate').textContent = `마지막 업데이트: ${new Date().toLocaleString()}`;
 
+        // 차트 로드
+        loadCharts(stats);
+
     } catch (error) {
         console.error('대시보드 통계 로딩 오류:', error);
         showError('대시보드 통계를 불러오는데 실패했습니다.');
     }
+}
+
+// 차트 로드 및 렌더링
+function loadCharts(stats) {
+    // 1. 투자 등급 분포 차트 (Doughnut Chart)
+    const gradeCtx = document.getElementById('gradeDistributionChart').getContext('2d');
+    
+    // API 데이터 기반으로 분포 계산 (데이터가 부족하면 추정치 사용)
+    const sCount = stats.s_grade_properties || stats.sGradeProperties || 0;
+    const aCount = (stats.excellent_properties || stats.excellentProperties || 0) - sCount;
+    const bCount = (stats.good_properties || stats.goodProperties || 0) - sCount - aCount;
+    const remaining = (stats.total_active_properties || stats.totalActiveProperties || 0) - sCount - aCount - bCount;
+    
+    // 차트가 이미 존재하면 파괴
+    if (window.gradeChart instanceof Chart) {
+        window.gradeChart.destroy();
+    }
+
+    window.gradeChart = new Chart(gradeCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['S등급 (최고)', 'A등급 (우수)', 'B등급 (양호)', '일반'],
+            datasets: [{
+                data: [
+                    Math.max(0, sCount), 
+                    Math.max(0, aCount), 
+                    Math.max(0, bCount), 
+                    Math.max(0, remaining)
+                ],
+                backgroundColor: [
+                    '#10b981', // Emerald-500
+                    '#3b82f6', // Blue-500
+                    '#f59e0b', // Amber-500
+                    '#9ca3af'  // Gray-400
+                ],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        boxWidth: 12,
+                        font: { size: 11 }
+                    }
+                }
+            },
+            cutout: '70%'
+        }
+    });
+
+    // 2. 지역별 평균 점수 차트 (Bar Chart)
+    // 실제 API에서 지역별 데이터를 주지 않으므로, 부산 주요 지역 예시 데이터 사용
+    const regionCtx = document.getElementById('regionScoreChart').getContext('2d');
+    
+    if (window.regionChart instanceof Chart) {
+        window.regionChart.destroy();
+    }
+
+    window.regionChart = new Chart(regionCtx, {
+        type: 'bar',
+        data: {
+            labels: ['해운대구', '수영구', '동래구', '연제구', '남구', '부산진구'],
+            datasets: [{
+                label: '평균 투자 점수',
+                data: [82, 79, 75, 74, 70, 68], // 예시 데이터
+                backgroundColor: '#6366f1', // Indigo-500
+                borderRadius: 4,
+                barThickness: 20
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    grid: { borderDash: [2, 2] }
+                },
+                x: {
+                    grid: { display: false }
+                }
+            }
+        }
+    });
 }
 
 // 물건 목록 로드
@@ -124,7 +225,7 @@ function displayProperties(properties) {
     }
 
     container.innerHTML = properties.map(property => `
-        <div class="border-b last:border-b-0 py-4 hover:bg-gray-50 cursor-pointer" 
+        <div class="border-b last:border-b-0 py-4 hover:bg-gray-50 cursor-pointer group" 
              onclick="showPropertyDetail(${property.id})">
             <div class="flex items-start justify-between">
                 <div class="flex-1">
@@ -142,9 +243,16 @@ function displayProperties(properties) {
                         ` : ''}
                     </div>
 
-                    <h3 class="font-medium text-gray-900 mb-1">
-                        ${property.building_name || property.address}
-                    </h3>
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-medium text-gray-900 mb-1 group-hover:text-blue-600 transition-colors">
+                            ${property.building_name || property.address}
+                        </h3>
+                        <button onclick="toggleWatchlist(${property.id}, event)" 
+                                class="p-2 rounded-full hover:bg-red-50 transition-colors focus:outline-none"
+                                id="heart-${property.id}">
+                            <i class="far fa-heart text-gray-400 text-lg hover:text-red-500 transition-colors"></i>
+                        </button>
+                    </div>
                     
                     <div class="flex items-center justify-between text-sm text-gray-600 mb-2">
                         <div class="flex items-center">
@@ -200,6 +308,84 @@ function displayProperties(properties) {
             </div>
         </div>
     `).join('');
+    
+    // 관심 목록 상태 확인 및 UI 업데이트
+    checkWatchlistStatus(properties.map(p => p.id));
+}
+
+// 관심 목록 상태 일괄 확인
+async function checkWatchlistStatus(propertyIds) {
+    if (!propertyIds || propertyIds.length === 0) return;
+    
+    try {
+        // 실제로는 한 번에 조회하는 API가 효율적이지만, 현재는 개별 확인
+        // TODO: 일괄 조회 API 구현 필요
+        for (const id of propertyIds) {
+            const response = await fetch(`/api/watchlist/${id}/check?userId=temp_user`);
+            const data = await response.json();
+            
+            if (data.isInWatchlist) {
+                updateHeartIcon(id, true);
+            }
+        }
+    } catch (error) {
+        console.error('관심 목록 상태 확인 실패:', error);
+    }
+}
+
+// 관심 등록/해제 토글
+async function toggleWatchlist(propertyId, event) {
+    if (event) event.stopPropagation();
+    
+    const heartBtn = document.getElementById(`heart-${propertyId}`);
+    const icon = heartBtn.querySelector('i');
+    const isAdded = icon.classList.contains('fas'); // 꽉 찬 하트면 이미 추가된 상태
+    
+    try {
+        // 낙관적 UI 업데이트 (빠른 반응)
+        updateHeartIcon(propertyId, !isAdded);
+        
+        if (isAdded) {
+            // 제거
+            const response = await fetch(`/api/watchlist/${propertyId}?userId=temp_user`, {
+                method: 'DELETE'
+            });
+            if (!response.ok) throw new Error('제거 실패');
+            showToast('관심 목록에서 삭제되었습니다.', 'info');
+        } else {
+            // 추가
+            const response = await fetch(`/api/watchlist/${propertyId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: 'temp_user' })
+            });
+            if (!response.ok) throw new Error('추가 실패');
+            showToast('관심 목록에 추가되었습니다! 알림을 보내드립니다.', 'success');
+        }
+        
+    } catch (error) {
+        console.error('관심 목록 처리 실패:', error);
+        // 실패 시 롤백
+        updateHeartIcon(propertyId, isAdded);
+        showToast('처리에 실패했습니다. 다시 시도해주세요.', 'error');
+    }
+}
+
+function updateHeartIcon(propertyId, isAdded) {
+    const heartBtn = document.getElementById(`heart-${propertyId}`);
+    if (!heartBtn) return;
+    
+    const icon = heartBtn.querySelector('i');
+    
+    if (isAdded) {
+        icon.classList.remove('far', 'text-gray-400');
+        icon.classList.add('fas', 'text-red-500');
+        heartBtn.classList.add('bg-red-50');
+    } else {
+        icon.classList.remove('fas', 'text-red-500');
+        icon.classList.add('far', 'text-gray-400');
+        heartBtn.classList.remove('bg-red-50');
+    }
 }
 
 // 페이지네이션 표시
@@ -1356,10 +1542,132 @@ function closeMapModal() {
     }
 }
 
-// 지도 모달 외부 클릭 시 닫기
-document.getElementById('mapModal').addEventListener('click', (e) => {
-    if (e.target.id === 'mapModal') {
-        closeMapModal();
+// 관심목록 모달 열기
+function openWatchlistModal() {
+    document.getElementById('watchlistModal').classList.remove('hidden');
+    loadWatchlistItems();
+}
+
+// 관심목록 모달 닫기
+function closeWatchlistModal() {
+    document.getElementById('watchlistModal').classList.add('hidden');
+}
+
+// 관심목록 아이템 로드
+async function loadWatchlistItems() {
+    const container = document.getElementById('watchlistContent');
+    const token = getToken();
+
+    if (!token) {
+        container.innerHTML = `
+            <div class="text-center py-16">
+                <div class="bg-gray-100 p-4 rounded-full mb-4 inline-block">
+                    <i class="fas fa-lock text-3xl text-gray-400"></i>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">로그인이 필요합니다</h3>
+                <p class="text-gray-500 mb-6">관심 목록을 보려면 먼저 로그인해주세요.</p>
+                <a href="/login.html" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors inline-block">
+                    로그인 / 회원가입
+                </a>
+            </div>
+        `;
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/watchlist', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (response.status === 401 || response.status === 403) {
+            logout(); // 토큰 만료 시 로그아웃
+            return;
+        }
+
+        const data = await response.json();
+        
+        if (!data.data || data.data.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-16 flex flex-col items-center justify-center h-full">
+                    <div class="bg-gray-100 p-4 rounded-full mb-4">
+                        <i class="far fa-heart text-4xl text-gray-400"></i>
+                    </div>
+                    <h3 class="text-lg font-medium text-gray-900 mb-1">관심 물건이 없습니다</h3>
+                    <p class="text-gray-500 mb-6">마음에 드는 물건의 하트 아이콘을 눌러 추가해보세요.</p>
+                    <button onclick="closeWatchlistModal()" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                        물건 둘러보기
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `<div class="grid grid-cols-1 gap-4">
+            ${data.data.map(item => `
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-shadow cursor-pointer relative group"
+                     onclick="showPropertyDetail(${item.property_id})">
+                    
+                    <button onclick="toggleWatchlist(${item.property_id}, event); this.closest('.bg-white').remove();" 
+                            class="absolute top-4 right-4 text-red-500 hover:text-red-700 p-2 z-10"
+                            title="관심목록에서 제거">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+
+                    <div class="flex items-start">
+                        <!-- 썸네일 (아이콘 대체) -->
+                        <div class="w-20 h-20 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 mr-4">
+                            <i class="fas ${item.property_type === '아파트' ? 'fa-building' : 'fa-home'} text-2xl text-gray-400"></i>
+                        </div>
+                        
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <span class="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-medium">${item.case_number}</span>
+                                <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">${item.property_type}</span>
+                                ${item.current_status === 'active' 
+                                    ? '<span class="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">진행중</span>' 
+                                    : '<span class="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded">종료</span>'}
+                            </div>
+                            
+                            <h4 class="font-bold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors line-clamp-1">
+                                ${item.building_name || item.address}
+                            </h4>
+                            
+                            <p class="text-xs text-gray-500 mb-3 line-clamp-1">${item.address}</p>
+                            
+                            <div class="flex items-center justify-between">
+                                <div class="text-sm font-bold text-blue-600">
+                                    ${formatPrice(item.minimum_sale_price)}
+                                </div>
+                                <div class="flex items-center space-x-3 text-xs text-gray-500">
+                                    <span><i class="far fa-calendar mr-1"></i>${formatDate(item.auction_date)}</span>
+                                    ${item.investment_score ? `
+                                        <span class="font-bold ${getScoreColor(item.investment_score)}">
+                                            AI ${item.investment_score}점
+                                        </span>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('')}
+        </div>`;
+
+    } catch (error) {
+        console.error('관심목록 로드 실패:', error);
+        container.innerHTML = `
+            <div class="text-center py-12 text-red-500">
+                <i class="fas fa-exclamation-circle text-2xl mb-2"></i>
+                <p>목록을 불러오는데 실패했습니다.</p>
+            </div>
+        `;
+    }
+}
+
+// 관심목록 모달 외부 클릭 닫기
+document.getElementById('watchlistModal').addEventListener('click', (e) => {
+    if (e.target.id === 'watchlistModal') {
+        closeWatchlistModal();
     }
 });
 

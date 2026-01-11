@@ -141,8 +141,13 @@
                         <span class="text-sm">실시간 연결</span>
                     </div>
                     
+                    <!-- 인증 UI 컨테이너 -->
+                    <div id="authContainer">
+                        <!-- 로그인 상태에 따라 동적으로 변경됨 -->
+                    </div>
+                    
                     <!-- 마지막 업데이트 -->
-                    <div class="text-sm opacity-90">
+                    <div class="text-sm opacity-90 hidden md:block">
                         <i class="fas fa-clock mr-1"></i>
                         <span id="lastUpdate">업데이트: --</span>
                     </div>
@@ -150,6 +155,11 @@
                     <!-- 새로고침 버튼 -->
                     <button onclick="refreshData()" class="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm transition-all duration-200">
                         <i class="fas fa-sync mr-1"></i> 새로고침
+                    </button>
+                    
+                    <!-- 관심목록 버튼 -->
+                    <button onclick="openWatchlistModal()" class="bg-white bg-opacity-20 hover:bg-opacity-30 px-4 py-2 rounded-lg text-sm transition-all duration-200">
+                        <i class="fas fa-heart mr-1 text-red-300"></i> 관심목록
                     </button>
                     
                     <!-- 설정 버튼 -->
@@ -568,6 +578,31 @@
         </div>
     </div>
 
+    <!-- 관심목록 모달 -->
+    <div id="watchlistModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg max-w-4xl w-full max-h-screen overflow-y-auto flex flex-col" style="height: 80vh;">
+            <div class="p-6 border-b flex-shrink-0">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-xl font-semibold flex items-center">
+                        <i class="fas fa-heart text-red-500 mr-2"></i>
+                        내 관심 물건
+                    </h3>
+                    <button onclick="closeWatchlistModal()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="watchlistContent" class="p-6 overflow-y-auto flex-grow bg-gray-50">
+                <!-- 관심 목록 아이템들이 여기에 로드됩니다 -->
+                <div class="text-center py-12 text-gray-500">
+                    <i class="fas fa-spinner fa-spin text-2xl mb-3"></i>
+                    <p>관심 목록을 불러오는 중...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/auth.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

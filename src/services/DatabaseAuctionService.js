@@ -250,9 +250,11 @@ class DatabaseAuctionService {
             current_status: dbProperty.current_status,
             tenant_status: dbProperty.tenant_status,
             tenant_info: dbProperty.tenant_info,
-            court_auction_url: dbProperty.source_url,
-            onbid_url: `https://www.onbid.co.kr/op/con/conDetail.do?cseq=${Math.floor(Math.random() * 100000) + 1000000}&gubun=11`,
-            goodauction_url: `https://www.goodauction.land/auction/${dbProperty.case_number}`,
+            court_auction_url: dbProperty.source_url || `https://www.courtauction.go.kr/RetrieveRealEstateAuctionDetail.laf?saNo=${dbProperty.case_number.split('타경')[0]}0130${dbProperty.case_number.split('타경')[1]}`, // 대법원 상세 링크 추정 (사건번호 파싱 필요)
+            // 실제 온비드 매물인지 확인 불가하므로, 통합 검색 링크로 제공하거나 제거
+            onbid_url: null, 
+            // 지지옥션 등 외부 링크는 실제 ID가 없으면 유효하지 않으므로 제거하거나 검색 페이지로 유도
+            goodauction_url: `https://www.google.com/search?q=${encodeURIComponent(dbProperty.address + ' 경매')}`,
             ai_analysis: dbProperty.investment_score ? {
                 investment_score: dbProperty.investment_score,
                 investment_grade: dbProperty.investment_grade,
@@ -261,10 +263,10 @@ class DatabaseAuctionService {
                 risk_score: dbProperty.risk_score,
                 liquidity_score: dbProperty.liquidity_score,
                 location_score: dbProperty.location_score,
-                roi_1year: parseFloat(dbProperty.roi_1year) || null,
-                roi_3year: parseFloat(dbProperty.roi_3year) || null,
-                success_probability: dbProperty.success_probability,
-                estimated_final_price: parseInt(dbProperty.estimated_final_price) || null,
+                roi_1year: parseFloat(dbProperty.roi_1year) || 0,
+                roi_3year: parseFloat(dbProperty.roi_3year) || 0,
+                success_probability: parseFloat(dbProperty.success_probability) || 0,
+                estimated_final_price: parseInt(dbProperty.estimated_final_price) || 0,
                 analyzed_at: dbProperty.analyzed_at
             } : null,
             is_dummy_data: false,

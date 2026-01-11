@@ -14,6 +14,9 @@ const AnalysisService = require('./services/AnalysisService');
 const AdvancedCourtAuctionScraper = require('./scraper/AdvancedCourtAuctionScraper');
 const AIInvestmentAnalyzer = require('./analyzer/AIInvestmentAnalyzer');
 
+const DailyScheduler = require('./scheduler/DailyScheduler');
+const WatchlistService = require('./services/WatchlistService'); // 추가
+
 // 데이터베이스
 const pool = require('../config/database');
 
@@ -39,6 +42,8 @@ class OptimizedBusanAuctionApp {
     this.analysisService = new AnalysisService();
     this.scraper = new AdvancedCourtAuctionScraper();
     this.analyzer = new AIInvestmentAnalyzer();
+    this.scheduler = new DailyScheduler();
+    this.watchlistService = new WatchlistService(); // 추가
     
     // 앱 상태
     this.isRunning = false;
@@ -110,14 +115,17 @@ class OptimizedBusanAuctionApp {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://cdn.jsdelivr.net"],
-          styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://cdn.tailwindcss.com"],
-          fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
-          imgSrc: ["'self'", "data:", "https:"],
-          connectSrc: ["'self'", "ws:", "wss:"],
-          scriptSrcAttr: ["'unsafe-inline'"]  // 인라인 이벤트 핸들러 허용
+          scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.tailwindcss.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"], // unsafe-eval은 일부 라이브러리 호환성을 위해 필요할 수 있음
+          styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
+          fontSrc: ["'self'", "https://cdnjs.cloudflare.com", "https://fonts.gstatic.com"],
+          imgSrc: ["'self'", "data:", "https:", "blob:"],
+          connectSrc: ["'self'", "ws:", "wss:", "https://api.github.com"], // GitHub API 등 외부 API 허용
+          frameSrc: ["'self'", "https:"], // 지도나 외부 콘텐츠 iframe 허용
+          objectSrc: ["'none'"],
+          upgradeInsecureRequests: [],
         }
-      }
+      },
+      crossOriginEmbedderPolicy: false, // 일부 리소스 로딩 문제 해결
     }));
 
     // GZIP 압축
@@ -261,6 +269,9 @@ class OptimizedBusanAuctionApp {
   setupApiRoutes() {
     const router = express.Router();
 
+    // === 인증 API ===
+    router.use('/auth', authRoutes);
+
     // === 대시보드 API ===
     router.get('/dashboard/stats', async (req, res) => {
       try {
@@ -380,7 +391,7 @@ class OptimizedBusanAuctionApp {
     });
 
     // === 실시간 분석 API ===
-    router.post('/properties/:id/analyze', async (req, res) => {
+    router.post('/properties/:id/analyze', authenticateToken, async (req, res) => { // 인증 필요
       try {
         const propertyId = parseInt(req.params.id);
         
@@ -439,21 +450,70 @@ class OptimizedBusanAuctionApp {
     });
 
     // === 관심목록 API ===
-    router.post('/watchlist/:propertyId', async (req, res) => {
+    router.get('/watchlist', optionalAuth, async (req, res) => {
+      try {
+        const userId = req.user?.id || 'temp_user'; 
+        const { page = 1, limit = 20 } = req.query;
+        
+        const result = await this.watchlistService.getUserWatchlist(userId, {
+          page: parseInt(page),
+          limit: parseInt(limit)
+        });
+        
+        res.json(result);
+      } catch (error) {
+        console.error('❌ 관심목록 조회 실패:', error);
+        res.status(500).json({ error: '관심목록 조회 실패' });
+      }
+    });
+
+    router.get('/watchlist/:propertyId/check', optionalAuth, async (req, res) => {
       try {
         const propertyId = parseInt(req.params.propertyId);
-        const { userId } = req.body; // 실제로는 JWT에서 추출
+        const userId = req.user?.id || 'temp_user';
+        
+        const isInWatchlist = await this.watchlistService.isInWatchlist(userId, propertyId);
+        res.json({ isInWatchlist });
+      } catch (error) {
+        res.status(500).json({ error: '관심목록 확인 실패' });
+      }
+    });
 
-        // TODO: 관심목록 추가 로직 구현
+    router.post('/watchlist/:propertyId', optionalAuth, async (req, res) => {
+      try {
+        const propertyId = parseInt(req.params.propertyId);
+        const userId = req.user?.id || 'temp_user';
+        const settings = req.body.settings || {};
+
+        const result = await this.watchlistService.addToWatchlist(userId, propertyId, settings);
+        
+        // 캐시 무효화 (관심 물건 목록 캐시 등)
+        this.cacheService.deleteByPattern(`watchlist:${userId}`);
         
         res.json({ 
           message: '관심목록에 추가되었습니다',
-          propertyId 
+          data: result 
         });
 
       } catch (error) {
         console.error('❌ 관심목록 추가 실패:', error);
-        res.status(500).json({ error: '관심목록 추가 실패' });
+        res.status(error.statusCode || 500).json({ error: error.message });
+      }
+    });
+
+    router.delete('/watchlist/:propertyId', optionalAuth, async (req, res) => {
+      try {
+        const propertyId = parseInt(req.params.propertyId);
+        const userId = req.user?.id || 'temp_user';
+
+        await this.watchlistService.removeFromWatchlist(userId, propertyId);
+        
+        this.cacheService.deleteByPattern(`watchlist:${userId}`);
+        
+        res.json({ message: '관심목록에서 제거되었습니다' });
+      } catch (error) {
+        console.error('❌ 관심목록 제거 실패:', error);
+        res.status(error.statusCode || 500).json({ error: error.message });
       }
     });
 
@@ -649,6 +709,9 @@ class OptimizedBusanAuctionApp {
    */
   startScheduledTasks() {
     console.log('⏰ 정기 작업 스케줄 시작');
+
+    // 일일 스케줄러 시작 (스크래핑, 분석, 리포트)
+    this.scheduler.start();
 
     // 10분마다 알림 처리
     setInterval(async () => {

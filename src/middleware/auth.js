@@ -1,24 +1,8 @@
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 
-// JWT Secret (환경변수에서 가져오기, 없으면 기본값 - 프로덕션에서는 반드시 환경변수 설정)
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-
-/**
- * JWT 토큰 생성
- */
-const generateToken = (userId, role = 'user') => {
-  return jwt.sign(
-    {
-      userId,
-      role,
-      iat: Math.floor(Date.now() / 1000)
-    },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
-  );
-};
+// JWT Secret
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-it-in-production';
 
 /**
  * JWT 인증 미들웨어
@@ -30,6 +14,9 @@ const authenticateToken = (req, res, next) => {
     const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
     if (!token) {
+      // 개발 환경이거나 테스트용으로 토큰 없이 접근 시 temp_user 할당 (선택 사항)
+      // return next(); // Uncomment for loose security in dev
+      
       logger.warn('Authentication failed: No token provided', {
         ip: req.ip,
         url: req.url
@@ -54,10 +41,10 @@ const authenticateToken = (req, res, next) => {
         });
       }
 
-      // 검증된 사용자 정보를 req에 저장
-      req.user = user;
+      // 검증된 사용자 정보를 req에 저장 (AuthService.generateToken과 일치)
+      req.user = user; // { id, email, role }
       logger.debug('User authenticated', {
-        userId: user.userId,
+        userId: user.id,
         role: user.role
       });
       next();
@@ -83,12 +70,16 @@ const optionalAuth = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
+    // 토큰 없으면 temp_user 할당
+    req.user = { id: 'temp_user', role: 'guest' };
     return next();
   }
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (!err) {
       req.user = user;
+    } else {
+      req.user = { id: 'temp_user', role: 'guest' };
     }
     next();
   });
@@ -99,10 +90,6 @@ const optionalAuth = (req, res, next) => {
  */
 const requireAdmin = (req, res, next) => {
   if (!req.user) {
-    logger.warn('Admin access denied: No user authenticated', {
-      ip: req.ip,
-      url: req.url
-    });
     return res.status(401).json({
       error: 'Authentication required',
       message: 'Admin access requires authentication'
@@ -111,7 +98,7 @@ const requireAdmin = (req, res, next) => {
 
   if (req.user.role !== 'admin') {
     logger.warn('Admin access denied: Insufficient permissions', {
-      userId: req.user.userId,
+      userId: req.user.id,
       role: req.user.role,
       ip: req.ip,
       url: req.url
@@ -138,7 +125,7 @@ const requireRole = (...allowedRoles) => {
 
     if (!allowedRoles.includes(req.user.role)) {
       logger.warn('Access denied: Insufficient role', {
-        userId: req.user.userId,
+        userId: req.user.id,
         userRole: req.user.role,
         requiredRoles: allowedRoles
       });
@@ -164,14 +151,9 @@ const authenticateApiKey = (req, res, next) => {
     });
   }
 
-  // API 키 검증 (환경변수 또는 DB에서 확인)
   const validApiKeys = (process.env.API_KEYS || '').split(',');
 
   if (!validApiKeys.includes(apiKey)) {
-    logger.warn('Invalid API key', {
-      ip: req.ip,
-      url: req.url
-    });
     return res.status(403).json({
       error: 'Invalid API key'
     });
@@ -181,12 +163,9 @@ const authenticateApiKey = (req, res, next) => {
 };
 
 module.exports = {
-  generateToken,
   authenticateToken,
   optionalAuth,
   requireAdmin,
   requireRole,
-  authenticateApiKey,
-  JWT_SECRET,
-  JWT_EXPIRES_IN
+  authenticateApiKey
 };

@@ -25,6 +25,12 @@ class AdvancedCourtAuctionScraper {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     ];
+    // 무료 프록시 예시 (실제 운영 시에는 유료 프록시 API 연동 권장)
+    this.proxyList = [
+      // 'http://203.243.63.16:80', // 예시
+      // 'http://118.128.238.158:8080'
+    ]; 
+    this.useProxy = false; // 기본값은 false (무료 프록시는 불안정하므로)
     this.retryCount = 0;
     this.maxRetries = 3;
     this.sessionStart = Date.now();
@@ -37,9 +43,7 @@ class AdvancedCourtAuctionScraper {
     try {
       console.log('🚀 고급 스크래퍼 초기화 중...');
       
-      this.browser = await puppeteer.launch({
-        headless: false, // 프로덕션을 위해 헤드리스 모드 기본값으로 설정
-        args: [
+      const launchArgs = [
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
@@ -68,7 +72,6 @@ class AdvancedCourtAuctionScraper {
           '--hide-scrollbars',
           '--window-size=1920,1080',
           '--start-maximized',
-          // AdvancedScraper.js에서 가져온 추가 스텔스 모드
           '--disable-blink-features=WebGLDebugRendererInfo',
           '--disable-webgl',
           '--disable-threaded-compositing',
@@ -76,10 +79,21 @@ class AdvancedCourtAuctionScraper {
           '--disable-canvas-aa',
           '--disable-2d-canvas-clip-aa',
           '--disable-gl-drawing-for-tests',
-          '--disable-popup-blocking', // AdvancedScraper.js에서 추가
-          '--disable-device-discovery-notifications', // AdvancedScraper.js에서 추가
-          '--allow-running-insecure-content' // AdvancedScraper.js에서 추가
-        ],
+          '--disable-popup-blocking',
+          '--disable-device-discovery-notifications',
+          '--allow-running-insecure-content'
+      ];
+
+      // 프록시 설정 적용
+      if (this.useProxy && this.proxyList.length > 0) {
+        const proxy = this.proxyList[Math.floor(Math.random() * this.proxyList.length)];
+        launchArgs.push(`--proxy-server=${proxy}`);
+        console.log(`🌐 프록시 적용: ${proxy}`);
+      }
+
+      this.browser = await puppeteer.launch({
+        headless: false, // 프로덕션을 위해 헤드리스 모드 기본값으로 설정
+        args: launchArgs,
         ignoreDefaultArgs: [
           '--enable-automation',
           '--enable-blink-features=IdleDetection',
@@ -94,8 +108,6 @@ class AdvancedCourtAuctionScraper {
       
       // 모든 Anti-detection 스크립트 및 설정 적용
       await this._applyAntiDetectionScripts(this.page);
-      
-      console.log('✅ 고급 스크래퍼 초기화 완료');
       
       console.log('✅ 고급 스크래퍼 초기화 완료');
       

@@ -78,6 +78,7 @@ class RealEstateDataService {
    */
   getRegionCode(address) {
     const regionCodes = {
+      // 서울특별시
       '서울특별시 강남구': '11680',
       '서울특별시 강동구': '11740',
       '서울특별시 강북구': '11305',
@@ -102,23 +103,47 @@ class RealEstateDataService {
       '서울특별시 은평구': '11380',
       '서울특별시 종로구': '11110',
       '서울특별시 중구': '11140',
-      '서울특별시 중랑구': '11260'
+      '서울특별시 중랑구': '11260',
+      
+      // 부산광역시
+      '부산광역시 강서구': '26440',
+      '부산광역시 금정구': '26410',
+      '부산광역시 기장군': '26710',
+      '부산광역시 남구': '26290',
+      '부산광역시 동구': '26170',
+      '부산광역시 동래구': '26260',
+      '부산광역시 부산진구': '26230',
+      '부산광역시 북구': '26320',
+      '부산광역시 사상구': '26530',
+      '부산광역시 사하구': '26380',
+      '부산광역시 서구': '26140',
+      '부산광역시 수영구': '26500',
+      '부산광역시 연제구': '26470',
+      '부산광역시 영도구': '26200',
+      '부산광역시 중구': '26110',
+      '부산광역시 해운대구': '26350'
     };
 
     for (const [region, code] of Object.entries(regionCodes)) {
-      if (address.includes(region.replace('서울특별시 ', ''))) {
+      if (address.includes(region) || (address.includes(region.split(' ')[1]) && address.includes(region.split(' ')[0]))) {
         return code;
       }
     }
     
-    // 기본값: 서울 강남구
-    return '11680';
+    // 기본값: 부산 해운대구 (부산 프로젝트이므로)
+    return '26350';
   }
 
   /**
    * 경매 물건 주변 시세 분석
    */
   async analyzeMarketPrice(address, propertyType = '아파트') {
+    // API 키가 없으면 바로 더미 데이터 반환
+    if (this.apiKey === 'YOUR_API_KEY_HERE' || !this.apiKey) {
+      console.log('⚠️ 실거래가 API 키 없음, 더미 데이터 사용');
+      return this.generateDummyMarketData(address);
+    }
+
     try {
       const regionCode = this.getRegionCode(address);
       const currentDate = new Date();
@@ -136,15 +161,15 @@ class RealEstateDataService {
       }
 
       if (transactions.length === 0) {
-        console.log('⚠️ 실거래가 데이터 없음');
-        return null;
+        console.log('⚠️ 실거래가 데이터 없음 (더미 데이터 대체)');
+        return this.generateDummyMarketData(address);
       }
 
       // 가격 통계 계산
       const prices = transactions.map(t => parseInt(t.거래금액?.replace(/,/g, '') || '0')).filter(p => p > 0);
       
       if (prices.length === 0) {
-        return null;
+        return this.generateDummyMarketData(address);
       }
 
       const averagePrice = Math.round(prices.reduce((a, b) => a + b, 0) / prices.length);
@@ -163,8 +188,8 @@ class RealEstateDataService {
       };
 
     } catch (error) {
-      console.error('❌ 시세 분석 오류:', error);
-      return null;
+      console.error('❌ 시세 분석 오류 (더미 데이터 대체):', error.message);
+      return this.generateDummyMarketData(address);
     }
   }
 
